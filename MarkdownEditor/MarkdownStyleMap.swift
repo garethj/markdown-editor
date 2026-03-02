@@ -263,6 +263,168 @@ private struct StyleWalker: MarkupWalker {
         descendInto(blockQuote)
     }
 
+    // MARK: - Tables
+
+    mutating func visitTable(_ table: Table) {
+        guard let sourceRange = table.range,
+              let tableNS = converter.nsRange(for: sourceRange),
+              tableNS.location + tableNS.length <= textLength
+        else {
+            descendInto(table)
+            return
+        }
+
+        var delimiterRanges: [NSRange] = []
+
+        // Collect cell info for column width calculation.
+        // visualWidth accounts for hidden inline delimiters (**, _, `, ~~, []())
+        // so kern padding aligns the visible content, not the raw character count.
+        struct CellInfo {
+            let nsRange: NSRange
+            let visualWidth: Int
+            let isHeader: Bool
+            let columnIndex: Int
+        }
+        var allCells: [CellInfo] = []
+
+        let head = table.head
+        if let headRange = head.range, let headNS = converter.nsRange(for: headRange) {
+            collectPipeRanges(head, nsRange: headNS, into: &delimiterRanges)
+
+            for (colIdx, cell) in head.cells.enumerated() {
+                if let cr = cell.range, let ns = converter.nsRange(for: cr),
+                   ns.location + ns.length <= textLength {
+                    let hidden = countHiddenDelimiters(in: cell)
+                    allCells.append(CellInfo(nsRange: ns, visualWidth: max(0, ns.length - hidden),
+                                             isHeader: true, columnIndex: colIdx))
+                }
+            }
+
+            // Separator row: hidden entirely except trailing newline
+            let body = table.body
+            if let bodyRange = body.range, let bodyNS = converter.nsRange(for: bodyRange) {
+                let sepStart = NSMaxRange(headNS)
+                let sepEnd = bodyNS.location
+                if sepEnd > sepStart + 1 {
+                    delimiterRanges.append(NSRange(location: sepStart, length: sepEnd - sepStart - 1))
+                }
+
+                for row in body.rows {
+                    if let rowRange = row.range, let rowNS = converter.nsRange(for: rowRange) {
+                        collectPipeRanges(row, nsRange: rowNS, into: &delimiterRanges)
+
+                        for (colIdx, cell) in row.cells.enumerated() {
+                            if let cr = cell.range, let ns = converter.nsRange(for: cr),
+                               ns.location + ns.length <= textLength {
+                                let hidden = countHiddenDelimiters(in: cell)
+                                allCells.append(CellInfo(nsRange: ns, visualWidth: max(0, ns.length - hidden),
+                                                         isHeader: false, columnIndex: colIdx))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Calculate max visual column width
+        var maxColumnWidths: [Int: Int] = [:]
+        for cell in allCells {
+            maxColumnWidths[cell.columnIndex] = max(
+                maxColumnWidths[cell.columnIndex, default: 0], cell.visualWidth)
+        }
+        let columnCount = (maxColumnWidths.keys.max() ?? -1) + 1
+
+        // Character advancement for monospace font
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+
+        // 1. Whole table: monospace font with pipes + separator hidden
+        elements.append(StyledElement(
+            fullRange: tableNS,
+            contentRange: tableNS,
+            delimiterRanges: delimiterRanges,
+            attributes: MarkdownTheme.shared.tableAttributes
+        ))
+
+        // 2. Header cells: bold monospace
+        for cell in allCells where cell.isHeader {
+            elements.append(StyledElement(
+                fullRange: cell.nsRange,
+                contentRange: cell.nsRange,
+                delimiterRanges: [],
+                attributes: MarkdownTheme.shared.tableHeaderAttributes
+            ))
+        }
+
+        // 3. Column padding: kern on last character of each cell pads to max visual width.
+        //    Also compensates for hidden inter-column pipes (1 charWidth each).
+        for cell in allCells {
+            let maxWidth = maxColumnWidths[cell.columnIndex, default: cell.visualWidth]
+            let deficit = maxWidth - cell.visualWidth
+            let isLastColumn = cell.columnIndex == columnCount - 1
+            let extraChars = deficit + (isLastColumn ? 0 : 1)
+            if extraChars > 0 && cell.nsRange.length > 0 {
+                let lastCharRange = NSRange(location: NSMaxRange(cell.nsRange) - 1, length: 1)
+                let kernValue = CGFloat(extraChars) * charWidth
+                elements.append(StyledElement(
+                    fullRange: lastCharRange,
+                    contentRange: lastCharRange,
+                    delimiterRanges: [],
+                    attributes: [.kern: kernValue]
+                ))
+            }
+        }
+
+        descendInto(table)
+    }
+
+    /// Collects pipe/gap ranges for a single table row (gaps between row bounds and cell ranges).
+    private mutating func collectPipeRanges(_ row: Markup, nsRange rowNS: NSRange, into pipes: inout [NSRange]) {
+        var cursor = rowNS.location
+        for child in row.children {
+            if let childRange = child.range,
+               let childNS = converter.nsRange(for: childRange) {
+                if childNS.location > cursor {
+                    pipes.append(NSRange(location: cursor, length: childNS.location - cursor))
+                }
+                cursor = NSMaxRange(childNS)
+            }
+        }
+        let rowEnd = NSMaxRange(rowNS)
+        if rowEnd > cursor {
+            pipes.append(NSRange(location: cursor, length: rowEnd - cursor))
+        }
+    }
+
+    /// Counts characters within a node that will be hidden as inline delimiters.
+    /// Used to compute visual cell width for table column alignment.
+    private func countHiddenDelimiters(in node: Markup) -> Int {
+        var count = 0
+        for child in node.children {
+            if child is Strong {
+                count += 4  // ** + **
+            } else if child is Emphasis {
+                count += 2  // _ + _ or * + *
+            } else if child is InlineCode {
+                count += 2  // ` + `
+            } else if child is Strikethrough {
+                count += 4  // ~~ + ~~
+            } else if let link = child as? Link {
+                // [text](url) — delimiter chars = total range minus children ranges
+                if let lr = link.range, let lns = converter.nsRange(for: lr) {
+                    var textLen = 0
+                    for linkChild in link.children {
+                        if let cr = linkChild.range, let ns = converter.nsRange(for: cr) {
+                            textLen += ns.length
+                        }
+                    }
+                    count += lns.length - textLen
+                }
+            }
+            count += countHiddenDelimiters(in: child)
+        }
+        return count
+    }
+
     // MARK: - Strikethrough
 
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) {

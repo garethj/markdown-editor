@@ -142,6 +142,15 @@ final class MarkdownTheme {
         [.foregroundColor: blockQuoteColor, .font: italicFont]
     }
 
+    var tableAttributes: [NSAttributedString.Key: Any] {
+        [.font: codeFont]
+    }
+
+    var tableHeaderAttributes: [NSAttributedString.Key: Any] {
+        [.font: codeBoldFont]
+    }
+
+
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
         let idx = max(0, min(level - 1, headingFonts.count - 1))
         let para = NSMutableParagraphStyle()
