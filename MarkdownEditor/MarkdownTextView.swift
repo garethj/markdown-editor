@@ -169,6 +169,11 @@ struct MarkdownTextView: NSViewRepresentable {
         // Observe appearance changes for dark mode
         context.coordinator.observeAppearance()
 
+        // Set window frame autosave so macOS remembers size/position across launches
+        DispatchQueue.main.async {
+            scrollView.window?.setFrameAutosaveName("MarkdownEditorDocument")
+        }
+
         return scrollView
     }
 

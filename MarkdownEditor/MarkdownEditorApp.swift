@@ -8,6 +8,6 @@ struct MarkdownEditorApp: App {
             EditorView(document: config.document)
                 .frame(minWidth: 500, minHeight: 400)
         }
-        .defaultSize(width: 800, height: 600)
+        .defaultSize(width: 900, height: 700)
     }
 }
