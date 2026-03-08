@@ -51,6 +51,72 @@ final class EditorTextView: NSTextView {
         case bold, italic, link, codeBlock, heading(Int)
     }
 
+    // MARK: - Cmd+click to open links
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           let url = linkURL(at: event) {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    // Show pointing hand cursor when Cmd is held over a link
+    override func mouseMoved(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           linkURL(at: event) != nil {
+            NSCursor.pointingHand.set()
+        } else {
+            super.mouseMoved(with: event)
+        }
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        updateLinkCursor(with: event)
+        super.flagsChanged(with: event)
+    }
+
+    private func updateLinkCursor(with event: NSEvent) {
+        guard let window else { return }
+        let windowPoint = window.mouseLocationOutsideOfEventStream
+        let localPoint = convert(windowPoint, from: nil)
+        guard bounds.contains(localPoint) else { return }
+
+        if event.modifierFlags.contains(.command) {
+            let charIndex = characterIndex(at: localPoint)
+            if charIndex < (string as NSString).length,
+               let urlString = textStorage?.attribute(.markdownLinkURL, at: charIndex, effectiveRange: nil) as? String,
+               URL(string: urlString) != nil {
+                NSCursor.pointingHand.set()
+                return
+            }
+        }
+        NSCursor.iBeam.set()
+    }
+
+    private func linkURL(at event: NSEvent) -> URL? {
+        let localPoint = convert(event.locationInWindow, from: nil)
+        let charIndex = characterIndex(at: localPoint)
+        guard charIndex < (string as NSString).length else { return nil }
+        guard let urlString = textStorage?.attribute(.markdownLinkURL, at: charIndex, effectiveRange: nil) as? String,
+              let url = URL(string: urlString) else { return nil }
+        return url
+    }
+
+    private func characterIndex(at point: NSPoint) -> Int {
+        guard let textContainer, let layoutManager else { return NSNotFound }
+        let textPoint = NSPoint(
+            x: point.x - textContainerOrigin.x,
+            y: point.y - textContainerOrigin.y
+        )
+        return layoutManager.characterIndex(
+            for: textPoint,
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command) else {
             return super.performKeyEquivalent(with: event)

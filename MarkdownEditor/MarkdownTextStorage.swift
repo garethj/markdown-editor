@@ -66,6 +66,9 @@ final class MarkdownTextStorage: NSTextStorage {
             applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
         }
 
+        // Style bare URLs not already inside markdown links
+        applyBareURLStyling(text: text, fullRange: fullRange)
+
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
         // This is critical: glyphs are generated lazily and must use current ranges.
         for lm in layoutManagers {
@@ -77,6 +80,34 @@ final class MarkdownTextStorage: NSTextStorage {
         // causes NSTextView to scroll to the bottom. The character edit that triggered
         // processEditing already causes the layout manager to re-process the edited
         // region, picking up the attributes we set on the backing store above.
+    }
+
+    // MARK: - Bare URL detection
+
+    private static let bareURLRegex: NSRegularExpression = {
+        // Match http:// or https:// URLs not already inside markdown link syntax
+        try! NSRegularExpression(
+            pattern: #"https?://[^\s\)\]>]+"#,
+            options: []
+        )
+    }()
+
+    private func applyBareURLStyling(text: String, fullRange: NSRange) {
+        let nsText = text as NSString
+        let matches = Self.bareURLRegex.matches(in: text, options: [], range: fullRange)
+        let linkAttrs = MarkdownTheme.shared.linkAttributes
+
+        for match in matches {
+            let range = match.range
+            // Skip if this range already has a markdownLinkURL (i.e. it's inside a markdown link)
+            if backingStore.attribute(.markdownLinkURL, at: range.location, effectiveRange: nil) != nil {
+                continue
+            }
+            let urlString = nsText.substring(with: range)
+            var attrs = linkAttrs
+            attrs[.markdownLinkURL] = urlString
+            backingStore.addAttributes(attrs, range: range)
+        }
     }
 
     // MARK: - Font trait merging

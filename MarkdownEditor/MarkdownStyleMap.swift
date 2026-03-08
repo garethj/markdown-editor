@@ -1,6 +1,13 @@
 import AppKit
 import Markdown
 
+// MARK: - Custom attribute keys
+
+extension NSAttributedString.Key {
+    /// Stores the destination URL string for markdown links.
+    static let markdownLinkURL = NSAttributedString.Key("markdownLinkURL")
+}
+
 // MARK: - Styled element produced by AST walk
 
 struct StyledElement {
@@ -233,11 +240,16 @@ private struct StyleWalker: MarkupWalker {
         let contentRange = NSRange(location: nsRange.location + 1,
                                    length: textEndOffset - (nsRange.location + 1))
 
+        var attrs = MarkdownTheme.shared.linkAttributes
+        if let destination = link.destination, !destination.isEmpty {
+            attrs[.markdownLinkURL] = destination
+        }
+
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: contentRange,
             delimiterRanges: [openBracket, closeDelim],
-            attributes: MarkdownTheme.shared.linkAttributes
+            attributes: attrs
         ))
         descendInto(link)
     }
