@@ -272,15 +272,10 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             isUpdatingDocument = false
 
-            // Delimiter ranges were already updated inside processEditing→applyMarkdownStyling.
-            // Force full glyph invalidation to ensure the view redraws with current ranges.
-            if let lm = textView.layoutManager {
-                let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
-                if fullRange.length > 0 {
-                    lm.invalidateGlyphs(forCharacterRange: fullRange, changeInLength: 0, actualCharacterRange: nil)
-                    lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-                }
-            }
+            // Delimiter ranges and glyph invalidation are already handled inside
+            // processEditing → applyMarkdownStyling → edited(.editedAttributes).
+            // No full-document invalidation needed here — it's expensive (O(n) per
+            // keystroke) and causes the scroll view to jump to the bottom.
             updateCursorReveal()
         }
 

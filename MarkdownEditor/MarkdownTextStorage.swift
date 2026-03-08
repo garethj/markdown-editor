@@ -72,8 +72,11 @@ final class MarkdownTextStorage: NSTextStorage {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
         }
 
-        // Notify that attributes changed
-        edited(.editedAttributes, range: fullRange, changeInLength: 0)
+        // NOTE: We intentionally do NOT call edited(.editedAttributes, range: fullRange)
+        // here. Doing so triggers a full document re-layout on every keystroke, which
+        // causes NSTextView to scroll to the bottom. The character edit that triggered
+        // processEditing already causes the layout manager to re-process the edited
+        // region, picking up the attributes we set on the backing store above.
     }
 
     // MARK: - Font trait merging
