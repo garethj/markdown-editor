@@ -69,6 +69,12 @@ final class MarkdownTextStorage: NSTextStorage {
         // Style bare URLs not already inside markdown links
         applyBareURLStyling(text: text, fullRange: fullRange)
 
+        // Style ==highlight== syntax (not supported by swift-markdown parser)
+        let highlightElements = applyHighlightStyling(text: text, fullRange: fullRange)
+        if !highlightElements.isEmpty {
+            styleMap.appendElements(highlightElements)
+        }
+
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
         // This is critical: glyphs are generated lazily and must use current ranges.
         for lm in layoutManagers {
@@ -108,6 +114,37 @@ final class MarkdownTextStorage: NSTextStorage {
             attrs[.markdownLinkURL] = urlString
             backingStore.addAttributes(attrs, range: range)
         }
+    }
+
+    // MARK: - Highlight detection
+
+    private static let highlightRegex: NSRegularExpression = {
+        try! NSRegularExpression(pattern: #"==(.+?)=="#, options: [])
+    }()
+
+    private func applyHighlightStyling(text: String, fullRange: NSRange) -> [StyledElement] {
+        let matches = Self.highlightRegex.matches(in: text, options: [], range: fullRange)
+        let highlightAttrs = MarkdownTheme.shared.highlightAttributes
+        var elements: [StyledElement] = []
+
+        for match in matches {
+            let range = match.range
+            guard range.length >= 5 else { continue } // ==x== minimum
+
+            let contentRange = NSRange(location: range.location + 2, length: range.length - 4)
+            backingStore.addAttributes(highlightAttrs, range: contentRange)
+
+            let openDelim = NSRange(location: range.location, length: 2)
+            let closeDelim = NSRange(location: NSMaxRange(range) - 2, length: 2)
+
+            elements.append(StyledElement(
+                fullRange: range,
+                contentRange: contentRange,
+                delimiterRanges: [openDelim, closeDelim],
+                attributes: highlightAttrs
+            ))
+        }
+        return elements
     }
 
     // MARK: - Font trait merging

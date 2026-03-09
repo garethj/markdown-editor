@@ -48,7 +48,7 @@ final class EditorTextView: NSTextView {
     var formatHandler: ((FormatAction) -> Void)?
 
     enum FormatAction {
-        case bold, italic, link, codeBlock, heading(Int)
+        case bold, italic, link, codeBlock, heading(Int), highlight
     }
 
     // MARK: - Cmd+click to open links
@@ -130,6 +130,9 @@ final class EditorTextView: NSTextView {
             return true
         case "i":
             formatHandler?(.italic)
+            return true
+        case "m", "M" where event.modifierFlags.contains(.shift):
+            formatHandler?(.highlight)
             return true
         case "k":
             if event.modifierFlags.contains(.shift) {
@@ -396,6 +399,7 @@ struct MarkdownTextView: NSViewRepresentable {
             case .italic: toggleWrap(prefix: "_", suffix: "_")
             case .link: insertLink()
             case .codeBlock: insertCodeBlock()
+            case .highlight: toggleWrap(prefix: "==", suffix: "==")
             case .heading(let level): setHeading(level: level)
             }
         }
@@ -407,7 +411,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let pLen = prefix.count
             let sLen = suffix.count
 
-            // Check if already wrapped
+            // Check if delimiters are outside the selection
             if range.location >= pLen,
                NSMaxRange(range) + sLen <= text.length {
                 let before = text.substring(with: NSRange(location: range.location - pLen, length: pLen))
@@ -418,6 +422,17 @@ struct MarkdownTextView: NSViewRepresentable {
                     let inner = text.substring(with: range)
                     textView.insertText(inner, replacementRange: fullRange)
                     textView.setSelectedRange(NSRange(location: range.location - pLen, length: range.length))
+                    return
+                }
+            }
+
+            // Check if delimiters are inside the selection
+            if range.length >= pLen + sLen {
+                let selected = text.substring(with: range)
+                if selected.hasPrefix(prefix), selected.hasSuffix(suffix) {
+                    let inner = (selected as NSString).substring(with: NSRange(location: pLen, length: range.length - pLen - sLen))
+                    textView.insertText(inner, replacementRange: range)
+                    textView.setSelectedRange(NSRange(location: range.location, length: inner.count))
                     return
                 }
             }

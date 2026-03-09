@@ -66,8 +66,8 @@ struct SourceRangeConverter {
 // MARK: - Style map
 
 final class MarkdownStyleMap {
-    let elements: [StyledElement]
-    let allDelimiterRanges: [NSRange]
+    private(set) var elements: [StyledElement]
+    private(set) var allDelimiterRanges: [NSRange]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -81,6 +81,11 @@ final class MarkdownStyleMap {
         walker.visit(document)
         self.elements = walker.elements
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
+    }
+
+    func appendElements(_ newElements: [StyledElement]) {
+        elements.append(contentsOf: newElements)
+        allDelimiterRanges.append(contentsOf: newElements.flatMap(\.delimiterRanges))
     }
 }
 

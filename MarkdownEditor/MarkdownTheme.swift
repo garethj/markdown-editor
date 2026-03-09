@@ -21,6 +21,7 @@ final class MarkdownTheme {
     private(set) var codeBackgroundColor: NSColor
     private(set) var linkColor: NSColor
     private(set) var blockQuoteColor: NSColor
+    private(set) var highlightColor: NSColor
     private(set) var delimiterColor: NSColor
     private(set) var backgroundColor: NSColor
     private(set) var cursorColor: NSColor
@@ -44,6 +45,7 @@ final class MarkdownTheme {
         codeColor = .textColor
         codeBackgroundColor = .clear
         linkColor = .linkColor
+        highlightColor = .yellow
         blockQuoteColor = .secondaryLabelColor
         delimiterColor = .tertiaryLabelColor
         backgroundColor = .textBackgroundColor
@@ -83,6 +85,9 @@ final class MarkdownTheme {
             ? NSColor(calibratedWhite: 1.0, alpha: 0.06)
             : NSColor(calibratedWhite: 0.0, alpha: 0.04)
         linkColor = .linkColor
+        highlightColor = isDark
+            ? NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.1, alpha: 0.4)
+            : NSColor(calibratedRed: 1.0, green: 0.95, blue: 0.3, alpha: 0.5)
         blockQuoteColor = .secondaryLabelColor
         delimiterColor = .tertiaryLabelColor
         backgroundColor = isDark
@@ -148,6 +153,10 @@ final class MarkdownTheme {
 
     var tableHeaderAttributes: [NSAttributedString.Key: Any] {
         [.font: codeBoldFont]
+    }
+
+    var highlightAttributes: [NSAttributedString.Key: Any] {
+        [.backgroundColor: highlightColor]
     }
 
 
