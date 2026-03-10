@@ -46,9 +46,14 @@ struct StatusBarView: View {
 
 final class EditorTextView: NSTextView {
     var formatHandler: ((FormatAction) -> Void)?
+    var findHandler: ((FindAction) -> Void)?
 
     enum FormatAction {
         case bold, italic, link, codeBlock, heading(Int), highlight
+    }
+
+    enum FindAction {
+        case show, nextMatch, previousMatch, dismiss
     }
 
     // MARK: - Cmd+click to open links
@@ -130,6 +135,16 @@ final class EditorTextView: NSTextView {
             return true
         case "i":
             formatHandler?(.italic)
+            return true
+        case "f":
+            findHandler?(.show)
+            return true
+        case "g":
+            if event.modifierFlags.contains(.shift) {
+                findHandler?(.previousMatch)
+            } else {
+                findHandler?(.nextMatch)
+            }
             return true
         case "m", "M" where event.modifierFlags.contains(.shift):
             formatHandler?(.highlight)
@@ -223,6 +238,14 @@ struct MarkdownTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
+        // Find action handler
+        textView.findHandler = { [weak coordinator = context.coordinator] action in
+            coordinator?.handleFindAction(action)
+        }
+
+        // Set up find bar
+        context.coordinator.setupFindBar()
+
         // Set initial content
         if !document.text.isEmpty {
             textStorage.replaceCharacters(
@@ -283,6 +306,11 @@ struct MarkdownTextView: NSViewRepresentable {
         var isUpdatingFromSwiftUI = false
         private var fileWatcher: FileWatcher?
         private var appearanceObserver: NSObjectProtocol?
+
+        // Find bar
+        let findState = FindState()
+        var findBarView: FindBarView?
+        var findBarAccessory: NSTitlebarAccessoryViewController?
 
         init(_ parent: MarkdownTextView) {
             self.parent = parent
@@ -346,6 +374,11 @@ struct MarkdownTextView: NSViewRepresentable {
             // No full-document invalidation needed here — it's expensive (O(n) per
             // keystroke) and causes the scroll view to jump to the bottom.
             updateCursorReveal()
+
+            // Re-run find if the find bar is visible
+            if isFindBarVisible {
+                performSearch(query: findState.searchText)
+            }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -480,6 +513,190 @@ struct MarkdownTextView: NSViewRepresentable {
             let prefix = String(repeating: "#", count: level) + " "
             let newLine = prefix + line
             textView.insertText(newLine, replacementRange: lineRange)
+        }
+
+        // MARK: - Find bar
+
+        func setupFindBar() {
+            let bar = FindBarView()
+            findBarView = bar
+
+            bar.onSearchTextChanged = { [weak self] query in
+                self?.performSearch(query: query)
+            }
+            bar.onNext = { [weak self] in
+                self?.goToNextMatch()
+            }
+            bar.onPrevious = { [weak self] in
+                self?.goToPreviousMatch()
+            }
+            bar.onClose = { [weak self] in
+                self?.dismissFindBar()
+            }
+
+            let accessory = NSTitlebarAccessoryViewController()
+            bar.frame = NSRect(x: 0, y: 0, width: 400, height: 33)
+            accessory.view = bar
+            accessory.layoutAttribute = .bottom
+            findBarAccessory = accessory
+        }
+
+        func handleFindAction(_ action: EditorTextView.FindAction) {
+            switch action {
+            case .show:
+                showFindBar()
+            case .nextMatch:
+                goToNextMatch()
+            case .previousMatch:
+                goToPreviousMatch()
+            case .dismiss:
+                dismissFindBar()
+            }
+        }
+
+        private var isFindBarVisible: Bool {
+            findBarAccessory?.parent != nil
+        }
+
+        func showFindBar() {
+            guard let bar = findBarView, let textView,
+                  let window = textView.window,
+                  let accessory = findBarAccessory else { return }
+
+            // Add accessory to window if not already present
+            if accessory.parent == nil {
+                window.addTitlebarAccessoryViewController(accessory)
+            }
+
+            // Pre-fill with selection
+            let sel = textView.selectedRange()
+            if sel.length > 0, sel.length < 200 {
+                let selected = (textView.string as NSString).substring(with: sel)
+                bar.searchText = selected
+            }
+
+            bar.focusSearchField()
+            performSearch(query: bar.searchText)
+        }
+
+        func dismissFindBar() {
+            guard let bar = findBarView, let textView,
+                  let accessory = findBarAccessory else { return }
+
+            clearHighlights()
+            findState.searchText = ""
+            findState.matches.removeAll()
+            bar.updateMatchLabel(current: 0, total: 0)
+
+            // Remove accessory from window
+            if let window = textView.window,
+               let idx = window.titlebarAccessoryViewControllers.firstIndex(of: accessory) {
+                window.removeTitlebarAccessoryViewController(at: idx)
+            }
+
+            textView.window?.makeFirstResponder(textView)
+        }
+
+        func performSearch(query: String) {
+            guard let textView, let lm = textView.layoutManager else { return }
+            findState.searchText = query
+            clearHighlights()
+
+            let text = textView.string as NSString
+            findState.search(in: text, for: query)
+
+            // Highlight all matches
+            let theme = MarkdownTheme.shared
+            for range in findState.matches {
+                lm.addTemporaryAttribute(
+                    .backgroundColor,
+                    value: theme.findMatchColor,
+                    forCharacterRange: range
+                )
+            }
+
+            // Highlight current match
+            if !findState.matches.isEmpty {
+                // Find nearest match to cursor
+                let cursorPos = textView.selectedRange().location
+                var bestIdx = 0
+                var bestDist = Int.max
+                for (i, r) in findState.matches.enumerated() {
+                    let dist = abs(r.location - cursorPos)
+                    if dist < bestDist {
+                        bestDist = dist
+                        bestIdx = i
+                    }
+                }
+                findState.currentMatchIndex = bestIdx
+                highlightCurrentMatch()
+                scrollToCurrentMatch()
+            }
+
+            findBarView?.updateMatchLabel(
+                current: findState.currentMatchIndex,
+                total: findState.matches.count
+            )
+        }
+
+        func goToNextMatch() {
+            guard !findState.matches.isEmpty else { return }
+            unhighlightCurrentMatch()
+            findState.nextMatch()
+            highlightCurrentMatch()
+            scrollToCurrentMatch()
+            findBarView?.updateMatchLabel(
+                current: findState.currentMatchIndex,
+                total: findState.matches.count
+            )
+        }
+
+        func goToPreviousMatch() {
+            guard !findState.matches.isEmpty else { return }
+            unhighlightCurrentMatch()
+            findState.previousMatch()
+            highlightCurrentMatch()
+            scrollToCurrentMatch()
+            findBarView?.updateMatchLabel(
+                current: findState.currentMatchIndex,
+                total: findState.matches.count
+            )
+        }
+
+        private func clearHighlights() {
+            guard let textView, let lm = textView.layoutManager else { return }
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            guard fullRange.length > 0 else { return }
+            lm.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
+        }
+
+        private func highlightCurrentMatch() {
+            guard let textView, let lm = textView.layoutManager,
+                  !findState.matches.isEmpty else { return }
+            let range = findState.matches[findState.currentMatchIndex]
+            lm.addTemporaryAttribute(
+                .backgroundColor,
+                value: MarkdownTheme.shared.findCurrentMatchColor,
+                forCharacterRange: range
+            )
+        }
+
+        private func unhighlightCurrentMatch() {
+            guard let textView, let lm = textView.layoutManager,
+                  !findState.matches.isEmpty else { return }
+            let range = findState.matches[findState.currentMatchIndex]
+            lm.addTemporaryAttribute(
+                .backgroundColor,
+                value: MarkdownTheme.shared.findMatchColor,
+                forCharacterRange: range
+            )
+        }
+
+        private func scrollToCurrentMatch() {
+            guard let textView, !findState.matches.isEmpty else { return }
+            let range = findState.matches[findState.currentMatchIndex]
+            textView.scrollRangeToVisible(range)
+            textView.showFindIndicator(for: range)
         }
 
         // MARK: - File watching

@@ -25,6 +25,8 @@ final class MarkdownTheme {
     private(set) var delimiterColor: NSColor
     private(set) var backgroundColor: NSColor
     private(set) var cursorColor: NSColor
+    private(set) var findMatchColor: NSColor
+    private(set) var findCurrentMatchColor: NSColor
 
     // MARK: - Sizes
 
@@ -50,6 +52,8 @@ final class MarkdownTheme {
         delimiterColor = .tertiaryLabelColor
         backgroundColor = .textBackgroundColor
         cursorColor = .textColor
+        findMatchColor = .yellow
+        findCurrentMatchColor = .orange
         updateForCurrentAppearance()
     }
 
@@ -96,6 +100,12 @@ final class MarkdownTheme {
         cursorColor = isDark
             ? .white
             : NSColor(calibratedRed: 0.2, green: 0.2, blue: 0.25, alpha: 1)
+        findMatchColor = isDark
+            ? NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.15, alpha: 0.45)
+            : NSColor(calibratedRed: 1.0, green: 0.95, blue: 0.0, alpha: 0.4)
+        findCurrentMatchColor = isDark
+            ? NSColor(calibratedRed: 0.9, green: 0.5, blue: 0.1, alpha: 0.7)
+            : NSColor(calibratedRed: 1.0, green: 0.6, blue: 0.0, alpha: 0.5)
     }
 
     // MARK: - Attribute dictionaries
