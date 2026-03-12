@@ -17,6 +17,7 @@
 		4A0000000000000000000008 /* FileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000008 /* FileWatcher.swift */; };
 		4A000000000000000000000B /* FindBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B000000000000000000000D /* FindBarView.swift */; };
 		4A000000000000000000000C /* FindState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B000000000000000000000E /* FindState.swift */; };
+		4A000000000000000000000D /* MarkdownTextContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B000000000000000000000F /* MarkdownTextContainer.swift */; };
 		4A0000000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000009 /* Assets.xcassets */; };
 		4A000000000000000000000A /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 5B0000000000000000000002 /* Markdown */; };
 /* End PBXBuildFile section */
@@ -36,6 +37,7 @@
 		4B000000000000000000000C /* MarkdownEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MarkdownEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4B000000000000000000000D /* FindBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindBarView.swift; sourceTree = "<group>"; };
 		4B000000000000000000000E /* FindState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindState.swift; sourceTree = "<group>"; };
+		4B000000000000000000000F /* MarkdownTextContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextContainer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,6 +73,7 @@
 				4B0000000000000000000008 /* FileWatcher.swift */,
 				4B000000000000000000000D /* FindBarView.swift */,
 				4B000000000000000000000E /* FindState.swift */,
+				4B000000000000000000000F /* MarkdownTextContainer.swift */,
 				4B0000000000000000000009 /* Assets.xcassets */,
 				4B000000000000000000000A /* Info.plist */,
 				4B000000000000000000000B /* MarkdownEditor.entitlements */,
@@ -166,6 +169,7 @@
 				4A0000000000000000000008 /* FileWatcher.swift in Sources */,
 				4A000000000000000000000B /* FindBarView.swift in Sources */,
 				4A000000000000000000000C /* FindState.swift in Sources */,
+				4A000000000000000000000D /* MarkdownTextContainer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -184,7 +184,7 @@ struct MarkdownTextView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
 
@@ -192,9 +192,10 @@ struct MarkdownTextView: NSViewRepresentable {
         let textStorage = MarkdownTextStorage()
         let layoutManager = NSLayoutManager()
         let containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        let textContainer = NSTextContainer(containerSize: containerSize)
+        let textContainer = MarkdownTextContainer(containerSize: containerSize)
 
-        textContainer.widthTracksTextView = true
+        // We manage container width manually to allow table lines to exceed view width
+        textContainer.widthTracksTextView = false
         layoutManager.addTextContainer(textContainer)
         textStorage.addLayoutManager(layoutManager)
 
@@ -226,7 +227,7 @@ struct MarkdownTextView: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
+        textView.isHorizontallyResizable = true
 
         textView.delegate = context.coordinator
         context.coordinator.textView = textView
@@ -237,6 +238,13 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         scrollView.documentView = textView
+
+        // Set initial prose width before loading content so layout uses correct width.
+        // Use a reasonable default; refined with actual clip view width below.
+        textContainer.proseWidth = 600
+
+        // Observe clip view bounds changes to keep container width in sync
+        context.coordinator.observeClipViewBounds(scrollView: scrollView)
 
         // Find action handler
         textView.findHandler = { [weak coordinator = context.coordinator] action in
@@ -252,6 +260,24 @@ struct MarkdownTextView: NSViewRepresentable {
                 in: NSRange(location: 0, length: 0),
                 with: document.text
             )
+        }
+
+        // Refine prose width once clip view is sized
+        DispatchQueue.main.async {
+            let clipWidth = scrollView.contentView.bounds.width
+            if clipWidth > 0 {
+                let pw = clipWidth - textView.textContainerInset.width * 2
+                textContainer.proseWidth = pw
+                // Force re-layout with correct width
+                if let lm = textView.layoutManager {
+                    let len = (textView.string as NSString).length
+                    if len > 0 {
+                        lm.invalidateLayout(
+                            forCharacterRange: NSRange(location: 0, length: len),
+                            actualCharacterRange: nil)
+                    }
+                }
+            }
         }
 
         // applyMarkdownStyling is already called inside replaceCharacters→processEditing,
@@ -306,6 +332,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var isUpdatingFromSwiftUI = false
         private var fileWatcher: FileWatcher?
         private var appearanceObserver: NSObjectProtocol?
+        private var clipViewBoundsObserver: NSObjectProtocol?
 
         // Find bar
         let findState = FindState()
@@ -320,7 +347,33 @@ struct MarkdownTextView: NSViewRepresentable {
             if let obs = appearanceObserver {
                 DistributedNotificationCenter.default().removeObserver(obs)
             }
+            if let obs = clipViewBoundsObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
             fileWatcher?.stop()
+        }
+
+        // MARK: - Clip view bounds tracking
+
+        func observeClipViewBounds(scrollView: NSScrollView) {
+            let clipView = scrollView.contentView
+            clipView.postsBoundsChangedNotifications = true
+            clipViewBoundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: clipView,
+                queue: .main
+            ) { [weak self] notification in
+                guard let clipView = notification.object as? NSClipView,
+                      let textView = self?.textView,
+                      let container = textView.textContainer as? MarkdownTextContainer
+                else { return }
+                let newWidth = clipView.bounds.width - textView.textContainerInset.width * 2
+                if newWidth > 0, abs(container.proseWidth - newWidth) > 1 {
+                    container.proseWidth = newWidth
+                    textView.needsLayout = true
+                    textView.needsDisplay = true
+                }
+            }
         }
 
         // MARK: - Appearance

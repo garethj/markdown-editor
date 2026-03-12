@@ -68,11 +68,14 @@ struct SourceRangeConverter {
 final class MarkdownStyleMap {
     private(set) var elements: [StyledElement]
     private(set) var allDelimiterRanges: [NSRange]
+    /// Table regions with their required pixel width for horizontal scrolling.
+    private(set) var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)]
 
     init(text: String) {
         guard !text.isEmpty else {
             self.elements = []
             self.allDelimiterRanges = []
+            self.tableRegions = []
             return
         }
         let document = Document(parsing: text)
@@ -81,6 +84,7 @@ final class MarkdownStyleMap {
         walker.visit(document)
         self.elements = walker.elements
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
+        self.tableRegions = walker.tableRegions
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -95,6 +99,7 @@ private struct StyleWalker: MarkupWalker {
     let converter: SourceRangeConverter
     let textLength: Int
     var elements: [StyledElement] = []
+    var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
 
     // MARK: - Headings
 
@@ -390,6 +395,14 @@ private struct StyleWalker: MarkupWalker {
                 ))
             }
         }
+
+        // 4. Compute total table width for horizontal scrolling
+        //    Sum of max column widths + inter-column pipe gaps + safety margin
+        //    for leading/trailing pipes and font metric rounding
+        let totalTableWidth = (0..<columnCount).reduce(CGFloat(0)) { sum, col in
+            sum + CGFloat(maxColumnWidths[col, default: 0]) * charWidth
+        } + CGFloat(max(0, columnCount - 1)) * charWidth + 2 * charWidth
+        tableRegions.append((charRange: tableNS, requiredWidth: totalTableWidth))
 
         descendInto(table)
     }

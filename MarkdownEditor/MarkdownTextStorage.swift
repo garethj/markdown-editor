@@ -79,6 +79,10 @@ final class MarkdownTextStorage: NSTextStorage {
         // This is critical: glyphs are generated lazily and must use current ranges.
         for lm in layoutManagers {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
+            // Update table regions on custom text container for horizontal scrolling
+            if let container = lm.textContainers.first as? MarkdownTextContainer {
+                container.tableLineRanges = styleMap.tableRegions
+            }
         }
 
         // NOTE: We intentionally do NOT call edited(.editedAttributes, range: fullRange)
