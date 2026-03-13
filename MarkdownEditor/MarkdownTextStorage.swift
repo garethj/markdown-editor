@@ -92,6 +92,52 @@ final class MarkdownTextStorage: NSTextStorage {
         // region, picking up the attributes we set on the backing store above.
     }
 
+    // MARK: - Table overlay text visibility
+
+    /// Makes table text invisible and collapses it to near-zero height,
+    /// then adds paragraph spacing on the last line equal to the overlay height
+    /// so content below appears right after the overlay.
+    func applyTableOverlayAttributes(_ range: NSRange, overlayHeight: CGFloat) {
+        let nsText = string as NSString
+        guard range.location + range.length <= nsText.length else { return }
+        beginEditing()
+        // Hide all text in the table range
+        backingStore.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
+
+        // Collapse each line to near-zero height using paragraph style
+        var lineStart = range.location
+        let rangeEnd = NSMaxRange(range)
+        while lineStart < rangeEnd {
+            let lineRange = nsText.lineRange(for: NSRange(location: lineStart, length: 0))
+            let clippedRange = NSIntersectionRange(lineRange, range)
+            guard clippedRange.length > 0 else { break }
+
+            let existing = backingStore.attribute(.paragraphStyle, at: clippedRange.location, effectiveRange: nil) as? NSParagraphStyle ?? NSParagraphStyle.default
+            let mutable = existing.mutableCopy() as! NSMutableParagraphStyle
+            mutable.minimumLineHeight = 0.1
+            mutable.maximumLineHeight = 0.1
+            mutable.lineSpacing = 0
+            mutable.paragraphSpacing = 0
+            mutable.paragraphSpacingBefore = 0
+
+            // On the last line, add overlay height + gap as paragraph spacing
+            let isLastLine = NSMaxRange(lineRange) >= rangeEnd
+            if isLastLine {
+                mutable.paragraphSpacing = overlayHeight + 8
+            }
+
+            backingStore.addAttribute(.paragraphStyle, value: mutable, range: clippedRange)
+
+            // Also set font to tiny to minimize line fragment height
+            backingStore.addAttribute(.font, value: NSFont.systemFont(ofSize: 0.1), range: clippedRange)
+
+            lineStart = NSMaxRange(lineRange)
+        }
+
+        edited(.editedAttributes, range: range, changeInLength: 0)
+        endEditing()
+    }
+
     // MARK: - Bare URL detection
 
     private static let bareURLRegex: NSRegularExpression = {
