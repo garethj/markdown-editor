@@ -268,6 +268,8 @@ struct MarkdownTextView: NSViewRepresentable {
             if clipWidth > 0 {
                 let pw = clipWidth - textView.textContainerInset.width * 2
                 textContainer.proseWidth = pw
+                textView.minSize = NSSize(width: clipWidth, height: 0)
+                textView.frame.size.width = max(clipWidth, textContainer.size.width)
                 // Force re-layout with correct width
                 if let lm = textView.layoutManager {
                     let len = (textView.string as NSString).length
@@ -333,6 +335,7 @@ struct MarkdownTextView: NSViewRepresentable {
         private var fileWatcher: FileWatcher?
         private var appearanceObserver: NSObjectProtocol?
         private var clipViewBoundsObserver: NSObjectProtocol?
+        private var clipViewFrameObserver: NSObjectProtocol?
 
         // Find bar
         let findState = FindState()
@@ -350,6 +353,9 @@ struct MarkdownTextView: NSViewRepresentable {
             if let obs = clipViewBoundsObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
+            if let obs = clipViewFrameObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
             fileWatcher?.stop()
         }
 
@@ -358,22 +364,38 @@ struct MarkdownTextView: NSViewRepresentable {
         func observeClipViewBounds(scrollView: NSScrollView) {
             let clipView = scrollView.contentView
             clipView.postsBoundsChangedNotifications = true
-            clipViewBoundsObserver = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification,
-                object: clipView,
-                queue: .main
-            ) { [weak self] notification in
+            clipView.postsFrameChangedNotifications = true
+
+            let handler: (Notification) -> Void = { [weak self] notification in
                 guard let clipView = notification.object as? NSClipView,
                       let textView = self?.textView,
                       let container = textView.textContainer as? MarkdownTextContainer
                 else { return }
-                let newWidth = clipView.bounds.width - textView.textContainerInset.width * 2
-                if newWidth > 0, abs(container.proseWidth - newWidth) > 1 {
-                    container.proseWidth = newWidth
-                    textView.needsLayout = true
-                    textView.needsDisplay = true
+                let clipWidth = clipView.bounds.width
+                let newProseWidth = clipWidth - textView.textContainerInset.width * 2
+                if newProseWidth > 0, abs(container.proseWidth - newProseWidth) > 1 {
+                    container.proseWidth = newProseWidth
+                }
+                // Keep text view at least as wide as the clip view
+                textView.minSize = NSSize(width: clipWidth, height: 0)
+                let neededWidth = max(clipWidth, container.size.width)
+                if abs(textView.frame.width - neededWidth) > 1 {
+                    textView.frame.size.width = neededWidth
                 }
             }
+
+            clipViewBoundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: clipView,
+                queue: .main,
+                using: handler
+            )
+            clipViewFrameObserver = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification,
+                object: clipView,
+                queue: .main,
+                using: handler
+            )
         }
 
         // MARK: - Appearance

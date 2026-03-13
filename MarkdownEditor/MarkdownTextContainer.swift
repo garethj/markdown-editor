@@ -11,7 +11,17 @@ final class MarkdownTextContainer: NSTextContainer {
 
     /// The width at which normal (non-table) prose should wrap (matches clip view width).
     var proseWidth: CGFloat = 0 {
-        didSet { updateContainerWidth() }
+        didSet {
+            updateContainerWidth()
+            // Always invalidate layout when proseWidth changes, even if container
+            // width didn't change (e.g. a wide table dominates container width but
+            // prose lines still need to re-wrap at the new proseWidth).
+            if abs(proseWidth - oldValue) > 1,
+               let lm = layoutManager, lm.numberOfGlyphs > 0 {
+                let fullRange = NSRange(location: 0, length: lm.numberOfGlyphs)
+                lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+            }
+        }
     }
 
     override func lineFragmentRect(
