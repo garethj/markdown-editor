@@ -7,7 +7,6 @@ extension UTType {
 
 final class MarkdownDocument: ReferenceFileDocument {
     @Published var text: String
-    @Published var fileURL: URL?
 
     static var readableContentTypes: [UTType] { [.markdownText, .plainText] }
     static var writableContentTypes: [UTType] { [.markdownText] }

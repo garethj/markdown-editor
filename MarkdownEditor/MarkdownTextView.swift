@@ -5,11 +5,12 @@ import SwiftUI
 
 struct EditorView: View {
     @ObservedObject var document: MarkdownDocument
+    var fileURL: URL?
     @Environment(\.undoManager) var undoManager
 
     var body: some View {
         VStack(spacing: 0) {
-            MarkdownTextView(document: document, undoManager: undoManager)
+            MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager)
             StatusBarView(text: document.text)
         }
     }
@@ -175,6 +176,7 @@ final class EditorTextView: NSTextView {
 
 struct MarkdownTextView: NSViewRepresentable {
     @ObservedObject var document: MarkdownDocument
+    var fileURL: URL?
     var undoManager: UndoManager?
 
     func makeCoordinator() -> Coordinator {
@@ -296,12 +298,22 @@ struct MarkdownTextView: NSViewRepresentable {
             scrollView.window?.setFrameAutosaveName("MarkdownEditorDocument")
         }
 
+        // Start file watching if we have a URL
+        if let url = fileURL {
+            context.coordinator.startWatching(url: url)
+        }
+
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? EditorTextView else { return }
         guard !context.coordinator.isUpdatingDocument else { return }
+
+        // Update file watching if URL changed (e.g. Save As)
+        if let url = fileURL {
+            context.coordinator.startWatching(url: url)
+        }
 
         let current = textView.string
         if current != document.text {
@@ -335,6 +347,7 @@ struct MarkdownTextView: NSViewRepresentable {
         var isUpdatingDocument = false
         var isUpdatingFromSwiftUI = false
         private var fileWatcher: FileWatcher?
+        private var watchedURL: URL?
         private var appearanceObserver: NSObjectProtocol?
         private var clipViewBoundsObserver: NSObjectProtocol?
         private var clipViewFrameObserver: NSObjectProtocol?
@@ -949,7 +962,9 @@ struct MarkdownTextView: NSViewRepresentable {
         // MARK: - File watching
 
         func startWatching(url: URL) {
+            guard url != watchedURL else { return }
             fileWatcher?.stop()
+            watchedURL = url
             fileWatcher = FileWatcher()
             fileWatcher?.onChange = { [weak self] event in
                 self?.handleFileEvent(event, url: url)
@@ -962,8 +977,19 @@ struct MarkdownTextView: NSViewRepresentable {
             case .modified:
                 handleExternalModification(url: url)
             case .deleted, .renamed:
-                // File gone — stop watching, keep current content
+                // Atomic writes replace the file (new inode), so the old
+                // descriptor goes stale. Stop watching, then try to re-attach
+                // after a short delay — the replacement file should exist by then.
                 fileWatcher?.stop()
+                watchedURL = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self else { return }
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        self.startWatching(url: url)
+                        self.handleExternalModification(url: url)
+                    }
+                    // If file truly deleted, we stay stopped
+                }
             }
         }
 

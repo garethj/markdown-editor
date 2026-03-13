@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct MarkdownEditorApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: { MarkdownDocument() }) { config in
-            EditorView(document: config.document)
+            EditorView(document: config.document, fileURL: config.fileURL)
                 .frame(minWidth: 500, minHeight: 400)
         }
         .defaultSize(width: 900, height: 700)
