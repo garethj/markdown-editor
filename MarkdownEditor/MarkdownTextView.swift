@@ -999,6 +999,11 @@ struct MarkdownTextView: NSViewRepresentable {
             else { return }
 
             let doc = parent.document
+
+            // If the file on disk matches the current document, ignore —
+            // this happens when macOS auto-save writes the file (e.g. on focus loss).
+            guard newText != doc.text else { return }
+
             let hasLocalChanges = (parent.undoManager?.canUndo ?? false)
 
             if hasLocalChanges {
