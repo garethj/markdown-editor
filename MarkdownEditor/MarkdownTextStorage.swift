@@ -30,9 +30,14 @@ final class MarkdownTextStorage: NSTextStorage {
 
     // MARK: - Styling
 
+    /// Tracks the edited range during processEditing for incremental styling.
+    private var pendingEditedRange: NSRange?
+
     override func processEditing() {
         if editedMask.contains(.editedCharacters) {
+            pendingEditedRange = editedRange
             applyMarkdownStyling()
+            pendingEditedRange = nil
         }
         super.processEditing()
     }
@@ -42,54 +47,55 @@ final class MarkdownTextStorage: NSTextStorage {
         let fullRange = NSRange(location: 0, length: (text as NSString).length)
         guard fullRange.length > 0 else {
             lastStyleMap = nil
-            // Clear delimiter ranges on all layout delegates
             for lm in layoutManagers {
                 (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: nil)
             }
             return
         }
 
-        // Reset to default attributes (directly on backing store to avoid recursion)
-        backingStore.setAttributes(MarkdownTheme.shared.defaultAttributes, range: fullRange)
+        // Determine the dirty region: expand editedRange to enclosing paragraph boundaries
+        let nsText = text as NSString
+        let dirtyRange: NSRange
+        if let edited = pendingEditedRange, edited.location != NSNotFound {
+            let parStart = nsText.lineRange(for: NSRange(location: edited.location, length: 0)).location
+            let editEnd = min(NSMaxRange(edited), nsText.length)
+            let parEnd = NSMaxRange(nsText.lineRange(for: NSRange(location: max(0, editEnd > 0 ? editEnd - 1 : 0), length: 0)))
+            dirtyRange = NSRange(location: parStart, length: parEnd - parStart)
+        } else {
+            dirtyRange = fullRange
+        }
+        let isFullRestyle = NSEqualRanges(dirtyRange, fullRange)
 
-        // Parse markdown and apply styles
+        // Reset attributes only on the dirty region
+        backingStore.setAttributes(MarkdownTheme.shared.defaultAttributes, range: dirtyRange)
+
+        // Parse markdown (full AST required — cmark doesn't support incremental)
         let styleMap = MarkdownStyleMap(text: text)
         lastStyleMap = styleMap
 
-        // Elements are ordered parent-before-child (walker appends then calls descendInto).
-        // This ordering is critical: when a child range overlaps a parent, the merge
-        // below unions font traits so nested formatting (e.g. bold inside italic) works.
+        // Apply styles: scope to dirty region for incremental, all for full restyle
         for element in styleMap.elements {
-            // Apply content attributes to the full range (including delimiters)
-            // so that when delimiters are revealed at cursor, they share the style
             guard element.fullRange.location + element.fullRange.length <= fullRange.length else { continue }
-            applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
+            if isFullRestyle || NSIntersectionRange(element.fullRange, dirtyRange).length > 0 {
+                applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
+            }
         }
 
-        // Style bare URLs not already inside markdown links
-        applyBareURLStyling(text: text, fullRange: fullRange)
+        // Style bare URLs and highlights scoped to dirty region
+        applyBareURLStyling(text: text, fullRange: dirtyRange)
 
-        // Style ==highlight== syntax (not supported by swift-markdown parser)
-        let highlightElements = applyHighlightStyling(text: text, fullRange: fullRange)
+        let highlightElements = applyHighlightStyling(text: text, fullRange: dirtyRange)
         if !highlightElements.isEmpty {
             styleMap.appendElements(highlightElements)
         }
 
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
-        // This is critical: glyphs are generated lazily and must use current ranges.
         for lm in layoutManagers {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
-            // Update table regions on custom text container for horizontal scrolling
             if let container = lm.textContainers.first as? MarkdownTextContainer {
                 container.tableLineRanges = styleMap.tableRegions
             }
         }
-
-        // NOTE: We intentionally do NOT call edited(.editedAttributes, range: fullRange)
-        // here. Doing so triggers a full document re-layout on every keystroke, which
-        // causes NSTextView to scroll to the bottom. The character edit that triggered
-        // processEditing already causes the layout manager to re-process the edited
-        // region, picking up the attributes we set on the backing store above.
     }
 
     // MARK: - Table overlay text visibility

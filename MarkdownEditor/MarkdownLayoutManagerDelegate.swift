@@ -1,7 +1,7 @@
 import AppKit
 
 final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
-    var delimiterRanges: [NSRange] = []
+    var delimiterIndexSet = IndexSet()
     var activeSpanRange: NSRange?
 
     func layoutManager(
@@ -12,7 +12,7 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
         font aFont: NSFont,
         forGlyphRange glyphRange: NSRange
     ) -> Int {
-        guard !delimiterRanges.isEmpty else { return 0 }
+        guard !delimiterIndexSet.isEmpty else { return 0 }
 
         let modifiedProps = UnsafeMutablePointer<NSLayoutManager.GlyphProperty>.allocate(
             capacity: glyphRange.length
@@ -51,15 +51,20 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
             return false
         }
 
-        for range in delimiterRanges {
-            if NSLocationInRange(index, range) {
-                return true
-            }
-        }
-        return false
+        return delimiterIndexSet.contains(index)
     }
 
     func updateDelimiters(from styleMap: MarkdownStyleMap?) {
-        delimiterRanges = styleMap?.allDelimiterRanges ?? []
+        guard let ranges = styleMap?.allDelimiterRanges else {
+            delimiterIndexSet = IndexSet()
+            return
+        }
+        var indexSet = IndexSet()
+        for range in ranges {
+            if range.length > 0 {
+                indexSet.insert(integersIn: range.location..<(range.location + range.length))
+            }
+        }
+        delimiterIndexSet = indexSet
     }
 }

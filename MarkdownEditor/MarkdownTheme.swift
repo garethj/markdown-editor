@@ -106,68 +106,53 @@ final class MarkdownTheme {
         findCurrentMatchColor = isDark
             ? NSColor(calibratedRed: 0.9, green: 0.5, blue: 0.1, alpha: 0.7)
             : NSColor(calibratedRed: 1.0, green: 0.6, blue: 0.0, alpha: 0.5)
+
+        rebuildCachedAttributes()
     }
 
-    // MARK: - Attribute dictionaries
-
-    var defaultAttributes: [NSAttributedString.Key: Any] {
-        [
+    private func rebuildCachedAttributes() {
+        let paraStyle = defaultParagraphStyle
+        defaultAttributes = [
             .font: defaultFont,
             .foregroundColor: defaultColor,
-            .paragraphStyle: defaultParagraphStyle,
+            .paragraphStyle: paraStyle,
         ]
-    }
-
-    var boldAttributes: [NSAttributedString.Key: Any] {
-        [.font: boldFont]
-    }
-
-    var italicAttributes: [NSAttributedString.Key: Any] {
-        [.font: italicFont]
-    }
-
-    var boldItalicAttributes: [NSAttributedString.Key: Any] {
-        [.font: boldItalicFont]
-    }
-
-    var inlineCodeAttributes: [NSAttributedString.Key: Any] {
-        [
+        boldAttributes = [.font: boldFont]
+        italicAttributes = [.font: italicFont]
+        boldItalicAttributes = [.font: boldItalicFont]
+        inlineCodeAttributes = [
             .font: codeFont,
             .foregroundColor: codeColor,
             .backgroundColor: codeBackgroundColor,
         ]
-    }
-
-    var codeBlockAttributes: [NSAttributedString.Key: Any] {
-        [
+        codeBlockAttributes = [
             .font: codeFont,
             .foregroundColor: codeColor,
             .backgroundColor: codeBackgroundColor,
         ]
-    }
-
-    var linkAttributes: [NSAttributedString.Key: Any] {
-        [
+        linkAttributes = [
             .foregroundColor: linkColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
+        blockQuoteAttributes = [.foregroundColor: blockQuoteColor, .font: italicFont]
+        tableAttributes = [.font: codeFont]
+        tableHeaderAttributes = [.font: codeBoldFont]
+        highlightAttributes = [.backgroundColor: highlightColor]
     }
 
-    var blockQuoteAttributes: [NSAttributedString.Key: Any] {
-        [.foregroundColor: blockQuoteColor, .font: italicFont]
-    }
+    // MARK: - Cached attribute dictionaries (rebuilt on theme change)
 
-    var tableAttributes: [NSAttributedString.Key: Any] {
-        [.font: codeFont]
-    }
-
-    var tableHeaderAttributes: [NSAttributedString.Key: Any] {
-        [.font: codeBoldFont]
-    }
-
-    var highlightAttributes: [NSAttributedString.Key: Any] {
-        [.backgroundColor: highlightColor]
-    }
+    private(set) var defaultAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var boldAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var italicAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var boldItalicAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var inlineCodeAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var codeBlockAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var linkAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var blockQuoteAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
 
     // MARK: - Table overlay
 

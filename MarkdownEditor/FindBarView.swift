@@ -12,6 +12,7 @@ final class FindBarView: NSView {
     private let nextButton = NSButton()
     private let closeButton = NSButton()
     private let borderLayer = CALayer()
+    private var searchDebounceItem: DispatchWorkItem?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -167,6 +168,12 @@ extension FindBarView: NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        onSearchTextChanged?(searchField.stringValue)
+        searchDebounceItem?.cancel()
+        let query = searchField.stringValue
+        let item = DispatchWorkItem { [weak self] in
+            self?.onSearchTextChanged?(query)
+        }
+        searchDebounceItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: item)
     }
 }

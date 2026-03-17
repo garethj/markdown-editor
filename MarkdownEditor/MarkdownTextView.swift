@@ -20,26 +20,48 @@ struct EditorView: View {
 
 struct StatusBarView: View {
     let text: String
-
-    private var wordCount: Int {
-        guard !text.isEmpty else { return 0 }
-        return text.split { $0.isWhitespace || $0.isNewline }.count
-    }
-
-    private var characterCount: Int {
-        text.count
-    }
+    @StateObject private var counter = DebouncedWordCounter()
 
     var body: some View {
         HStack {
             Spacer()
-            Text("\(wordCount) words  \(characterCount) characters")
+            Text("\(counter.wordCount) words  \(counter.characterCount) characters")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: text) { _, newText in
+            counter.schedule(newText)
+        }
+        .onAppear {
+            counter.computeNow(text)
+        }
+    }
+}
+
+private final class DebouncedWordCounter: ObservableObject {
+    @Published var wordCount: Int = 0
+    @Published var characterCount: Int = 0
+    private var debounceItem: DispatchWorkItem?
+
+    func schedule(_ text: String) {
+        debounceItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.computeNow(text)
+        }
+        debounceItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: item)
+    }
+
+    func computeNow(_ text: String) {
+        characterCount = text.count
+        if text.isEmpty {
+            wordCount = 0
+        } else {
+            wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+        }
     }
 }
 
@@ -381,33 +403,20 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // MARK: - Clip view bounds tracking
 
+        /// Coalesce flag to prevent duplicate handling when both bounds and frame fire together
+        private var clipViewUpdateScheduled = false
+
         func observeClipViewBounds(scrollView: NSScrollView) {
             let clipView = scrollView.contentView
             clipView.postsBoundsChangedNotifications = true
             clipView.postsFrameChangedNotifications = true
 
-            let handler: (Notification) -> Void = { [weak self] notification in
-                guard let clipView = notification.object as? NSClipView,
-                      let textView = self?.textView,
-                      let container = textView.textContainer as? MarkdownTextContainer
-                else { return }
-                let clipWidth = clipView.bounds.width
-                let newProseWidth = clipWidth - textView.textContainerInset.width * 2
-                let widthChanged = newProseWidth > 0 && abs(container.proseWidth - newProseWidth) > 1
-                if widthChanged {
-                    container.proseWidth = newProseWidth
-                }
-                // Keep text view at least as wide as the clip view
-                textView.minSize = NSSize(width: clipWidth, height: 0)
-                let neededWidth = max(clipWidth, container.size.width)
-                if abs(textView.frame.width - neededWidth) > 1 {
-                    textView.frame.size.width = neededWidth
-                }
-                // Update table overlays on resize
-                if widthChanged {
-                    self?.resizeTableOverlays()
-                } else {
-                    self?.repositionTableOverlays()
+            let handler: (Notification) -> Void = { [weak self] _ in
+                guard let self, !self.clipViewUpdateScheduled else { return }
+                self.clipViewUpdateScheduled = true
+                DispatchQueue.main.async {
+                    self.clipViewUpdateScheduled = false
+                    self.handleClipViewChange(clipView)
                 }
             }
 
@@ -423,6 +432,28 @@ struct MarkdownTextView: NSViewRepresentable {
                 queue: .main,
                 using: handler
             )
+        }
+
+        private func handleClipViewChange(_ clipView: NSClipView) {
+            guard let textView,
+                  let container = textView.textContainer as? MarkdownTextContainer
+            else { return }
+            let clipWidth = clipView.bounds.width
+            let newProseWidth = clipWidth - textView.textContainerInset.width * 2
+            let widthChanged = newProseWidth > 0 && abs(container.proseWidth - newProseWidth) > 1
+            if widthChanged {
+                container.proseWidth = newProseWidth
+            }
+            textView.minSize = NSSize(width: clipWidth, height: 0)
+            let neededWidth = max(clipWidth, container.size.width)
+            if abs(textView.frame.width - neededWidth) > 1 {
+                textView.frame.size.width = neededWidth
+            }
+            if widthChanged {
+                resizeTableOverlays()
+            } else {
+                repositionTableOverlays()
+            }
         }
 
         // MARK: - Appearance
@@ -486,6 +517,25 @@ struct MarkdownTextView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             updateCursorReveal()
+
+            // Short-circuit: skip full overlay rebuild if cursor is still in the same table context
+            guard let textView,
+                  let styleMap = markdownTextStorage?.lastStyleMap else {
+                updateTableOverlays()
+                return
+            }
+            let cursorPos = textView.selectedRange().location
+            var newCursorTable: NSRange?
+            for td in styleMap.tableData {
+                if NSLocationInRange(cursorPos, td.charRange) || cursorPos == NSMaxRange(td.charRange) {
+                    newCursorTable = td.charRange
+                    break
+                }
+            }
+            // If cursor is in the same table (or same non-table) as before, just reposition
+            if newCursorTable == cursorTableRange {
+                return
+            }
             updateTableOverlays()
         }
 
@@ -500,12 +550,36 @@ struct MarkdownTextView: NSViewRepresentable {
             let cursorPos = textView.selectedRange().location
             let oldActive = layoutDelegate.activeSpanRange
 
-            // Find the element the cursor is in
+            // Find the element the cursor is in using binary search
+            // (elements are sorted by fullRange.location from the AST walk)
             var newActive: NSRange?
-            for element in styleMap.elements where !element.delimiterRanges.isEmpty {
-                if NSLocationInRange(cursorPos, element.fullRange)
-                    || cursorPos == NSMaxRange(element.fullRange) {
-                    newActive = element.fullRange
+            let elements = styleMap.elements
+            var lo = 0, hi = elements.count - 1
+            while lo <= hi {
+                let mid = (lo + hi) / 2
+                let el = elements[mid]
+                if el.fullRange.location > cursorPos {
+                    hi = mid - 1
+                } else if NSMaxRange(el.fullRange) < cursorPos {
+                    lo = mid + 1
+                } else {
+                    // cursorPos is within or at the end of this element
+                    // Search nearby for the best match (innermost with delimiters)
+                    // Walk backwards to find the first overlapping element
+                    var start = mid
+                    while start > 0 && elements[start - 1].fullRange.location + elements[start - 1].fullRange.length >= cursorPos {
+                        start -= 1
+                    }
+                    // Walk forward through overlapping elements
+                    for i in start..<elements.count {
+                        let e = elements[i]
+                        if e.fullRange.location > cursorPos { break }
+                        if !e.delimiterRanges.isEmpty &&
+                           (NSLocationInRange(cursorPos, e.fullRange) || cursorPos == NSMaxRange(e.fullRange)) {
+                            newActive = e.fullRange
+                            break
+                        }
+                    }
                     break
                 }
             }
@@ -552,18 +626,44 @@ struct MarkdownTextView: NSViewRepresentable {
                     break
                 }
             }
+
+            // Determine which tables should get overlays
+            let overlaidTables = styleMap.tableData.filter { td in
+                if let ct = newCursorTable, NSEqualRanges(ct, td.charRange) {
+                    return false
+                }
+                return true
+            }
+
+            // Fast path: if overlaid set matches existing overlays and cursor table
+            // context hasn't changed, just reposition (no destroy/rebuild cycle)
+            if stylingJustApplied && cursorTableRange == newCursorTable
+                && tableOverlays.count == overlaidTables.count
+                && !tableOverlays.isEmpty {
+                // Check if all overlay ranges still match (order-sensitive)
+                var match = true
+                for (i, entry) in tableOverlays.enumerated() {
+                    if !NSEqualRanges(entry.range, overlaidTables[i].charRange) {
+                        match = false
+                        break
+                    }
+                }
+                if match {
+                    // Re-apply collapsed text attributes and reposition
+                    for (i, entry) in tableOverlays.enumerated() {
+                        let td = overlaidTables[i]
+                        markdownTextStorage?.applyTableOverlayAttributes(td.charRange, overlayHeight: entry.view.frame.height)
+                        positionOverlay(entry.view, for: td.charRange)
+                    }
+                    cursorTableRange = newCursorTable
+                    return
+                }
+            }
+
             cursorTableRange = newCursorTable
 
             // Remove stale overlays
             removeAllTableOverlays(needsRestyle: !stylingJustApplied)
-
-            // Determine which tables will get overlays
-            let overlaidTables = styleMap.tableData.filter { td in
-                if let ct = newCursorTable, NSEqualRanges(ct, td.charRange) {
-                    return false // cursor is editing this table
-                }
-                return true
-            }
 
             // Update container BEFORE measuring text heights — excluding overlaid
             // tables from extended line widths lets text reflow to prose width first
@@ -577,7 +677,6 @@ struct MarkdownTextView: NSViewRepresentable {
             // Create overlays for tables that aren't being edited
             for td in overlaidTables {
                 let overlay = TableOverlayView(tableData: td, availableWidth: proseWidth)
-                positionOverlay(overlay, for: td.charRange)
                 overlay.alphaValue = 0
                 textView.addSubview(overlay)
                 tableOverlays.append((range: td.charRange, view: overlay))
@@ -593,10 +692,9 @@ struct MarkdownTextView: NSViewRepresentable {
                     overlay.animator().alphaValue = 1
                 }
 
-                // Collapse hidden text and add overlay height as spacing
+                // Collapse hidden text and add overlay height as spacing,
+                // then reposition (layout shifts after spacing change)
                 markdownTextStorage?.applyTableOverlayAttributes(td.charRange, overlayHeight: overlay.frame.height)
-
-                // Reposition after spacing change (layout may have shifted)
                 positionOverlay(overlay, for: td.charRange)
             }
         }
@@ -677,8 +775,7 @@ struct MarkdownTextView: NSViewRepresentable {
             let proseWidth = (textView.textContainer as? MarkdownTextContainer)?.proseWidth ?? textView.frame.width
             for entry in tableOverlays {
                 entry.view.updateWidth(proseWidth)
-                positionOverlay(entry.view, for: entry.range)
-                // Recalculate collapsed text spacing for new overlay height
+                // Recalculate collapsed text spacing for new overlay height, then reposition
                 markdownTextStorage?.applyTableOverlayAttributes(entry.range, overlayHeight: entry.view.frame.height)
                 positionOverlay(entry.view, for: entry.range)
             }

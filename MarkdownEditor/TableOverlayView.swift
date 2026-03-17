@@ -7,6 +7,9 @@ final class TableOverlayView: NSView {
     private var cellViews: [[NSTextField]] = []
     private let gridLineWidth: CGFloat = 0.5
     private let cellPadding: CGFloat = 8
+    private var cachedGridPath: NSBezierPath?
+    private var cachedHeaderSepPath: NSBezierPath?
+    private var cachedGridSize: NSSize = .zero
 
     /// Called when the user clicks on a cell. Passes the cell's character range in the backing store.
     var onCellClicked: ((NSRange) -> Void)?
@@ -27,6 +30,8 @@ final class TableOverlayView: NSView {
     func updateWidth(_ availableWidth: CGFloat) {
         subviews.forEach { $0.removeFromSuperview() }
         cellViews.removeAll()
+        cachedGridPath = nil
+        cachedHeaderSepPath = nil
         buildGrid(availableWidth: availableWidth)
     }
 
@@ -163,14 +168,11 @@ final class TableOverlayView: NSView {
 
     // MARK: - Drawing
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-
-        let gridColor = MarkdownTheme.shared.tableOverlayGridColor
-        gridColor.setStroke()
-
+    private func rebuildGridPaths() {
         let path = NSBezierPath()
         path.lineWidth = gridLineWidth
+
+        var headerSep: NSBezierPath?
 
         // Vertical lines between columns
         var x: CGFloat = 0
@@ -182,16 +184,22 @@ final class TableOverlayView: NSView {
             }
         }
 
-        // Horizontal lines between rows — line after header is slightly thicker
+        // Horizontal lines between rows
         for rowIdx in 0..<cellViews.count {
             if let firstCell = cellViews[rowIdx].first {
-                let y = firstCell.frame.maxY + 4  // bottom of row including padding
+                let y = firstCell.frame.maxY + 4
                 if rowIdx < cellViews.count - 1 {
-                    let linePath = NSBezierPath()
-                    linePath.lineWidth = rowIdx == 0 ? 1.0 : gridLineWidth
-                    linePath.move(to: NSPoint(x: 0, y: y))
-                    linePath.line(to: NSPoint(x: bounds.width, y: y))
-                    linePath.stroke()
+                    if rowIdx == 0 {
+                        // Header separator: thicker, drawn separately
+                        let h = NSBezierPath()
+                        h.lineWidth = 1.0
+                        h.move(to: NSPoint(x: 0, y: y))
+                        h.line(to: NSPoint(x: bounds.width, y: y))
+                        headerSep = h
+                    } else {
+                        path.move(to: NSPoint(x: 0, y: y))
+                        path.line(to: NSPoint(x: bounds.width, y: y))
+                    }
                 }
             }
         }
@@ -199,8 +207,23 @@ final class TableOverlayView: NSView {
         // Border
         let border = NSBezierPath(rect: bounds.insetBy(dx: gridLineWidth / 2, dy: gridLineWidth / 2))
         border.lineWidth = gridLineWidth
-        border.stroke()
+        path.append(border)
 
-        path.stroke()
+        cachedGridPath = path
+        cachedHeaderSepPath = headerSep
+        cachedGridSize = bounds.size
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let gridColor = MarkdownTheme.shared.tableOverlayGridColor
+        gridColor.setStroke()
+
+        if cachedGridPath == nil || !NSEqualSizes(cachedGridSize, bounds.size) {
+            rebuildGridPaths()
+        }
+        cachedGridPath?.stroke()
+        cachedHeaderSepPath?.stroke()
     }
 }
