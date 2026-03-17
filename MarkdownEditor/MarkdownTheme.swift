@@ -138,6 +138,20 @@ final class MarkdownTheme {
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
+
+        // Pre-compute heading attribute dicts for all 6 levels
+        cachedHeadingAttributes = headingSizes.enumerated().map { (idx, _) -> [NSAttributedString.Key: Any] in
+            let level = idx + 1
+            let para = NSMutableParagraphStyle()
+            para.lineSpacing = 4
+            para.paragraphSpacingBefore = level <= 2 ? 12 : 8
+            para.paragraphSpacing = level <= 2 ? 8 : 4
+            return [
+                .font: headingFonts[idx],
+                .foregroundColor: headingColor,
+                .paragraphStyle: para,
+            ]
+        }
     }
 
     // MARK: - Cached attribute dictionaries (rebuilt on theme change)
@@ -153,6 +167,7 @@ final class MarkdownTheme {
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
+    private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
     // MARK: - Table overlay
 
@@ -173,16 +188,8 @@ final class MarkdownTheme {
     var tableOverlayBackgroundColor: NSColor { backgroundColor }
 
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
-        let idx = max(0, min(level - 1, headingFonts.count - 1))
-        let para = NSMutableParagraphStyle()
-        para.lineSpacing = 4
-        para.paragraphSpacingBefore = level <= 2 ? 12 : 8
-        para.paragraphSpacing = level <= 2 ? 8 : 4
-        return [
-            .font: headingFonts[idx],
-            .foregroundColor: headingColor,
-            .paragraphStyle: para,
-        ]
+        let idx = max(0, min(level - 1, cachedHeadingAttributes.count - 1))
+        return cachedHeadingAttributes[idx]
     }
 
     private var defaultParagraphStyle: NSParagraphStyle {

@@ -144,6 +144,56 @@ final class MarkdownTextStorage: NSTextStorage {
         endEditing()
     }
 
+    // MARK: - Targeted table attribute restore
+
+    /// Restores correct styling on the given ranges without a full AST re-parse.
+    /// Uses the cached `lastStyleMap` to re-apply element attributes.
+    func restoreTableAttributes(_ ranges: [NSRange]) {
+        guard let styleMap = lastStyleMap else {
+            // Fallback: full restyle if no cached style map
+            applyMarkdownStyling()
+            return
+        }
+        let fullLength = (string as NSString).length
+        guard fullLength > 0 else { return }
+
+        beginEditing()
+        let theme = MarkdownTheme.shared
+
+        for range in ranges {
+            guard range.location + range.length <= fullLength else { continue }
+
+            // 1. Reset to default attributes
+            backingStore.setAttributes(theme.defaultAttributes, range: range)
+
+            // 2. Re-apply cached element styles that intersect this range
+            for element in styleMap.elements {
+                guard element.fullRange.location + element.fullRange.length <= fullLength else { continue }
+                let intersection = NSIntersectionRange(element.fullRange, range)
+                guard intersection.length > 0 else { continue }
+                applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
+            }
+
+            // 3. Re-apply bare URL and highlight styling on this range
+            applyBareURLStyling(text: string, fullRange: range)
+            let highlightElements = applyHighlightStyling(text: string, fullRange: range)
+            if !highlightElements.isEmpty {
+                styleMap.appendElements(highlightElements)
+            }
+        }
+
+        // 4. Update delimiter ranges (unchanged) and notify layout
+        for lm in layoutManagers {
+            (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
+            if let container = lm.textContainers.first as? MarkdownTextContainer {
+                container.tableLineRanges = styleMap.tableRegions
+            }
+        }
+
+        edited(.editedAttributes, range: NSRange(location: 0, length: fullLength), changeInLength: 0)
+        endEditing()
+    }
+
     // MARK: - Bare URL detection
 
     private static let bareURLRegex: NSRegularExpression = {

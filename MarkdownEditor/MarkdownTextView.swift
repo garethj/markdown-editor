@@ -378,11 +378,14 @@ struct MarkdownTextView: NSViewRepresentable {
         let findState = FindState()
         var findBarView: FindBarView?
         var findBarAccessory: NSTitlebarAccessoryViewController?
+        private var pendingFindWorkItem: DispatchWorkItem?
 
         // Table overlays
         private var tableOverlays: [(range: NSRange, view: TableOverlayView)] = []
         /// The table range the cursor is currently inside (nil = not in any table).
         private var cursorTableRange: NSRange?
+        /// Range of the most recent text edit, used to skip unchanged overlay re-application.
+        private var lastEditedRange: NSRange?
 
         init(_ parent: MarkdownTextView) {
             self.parent = parent
@@ -490,6 +493,11 @@ struct MarkdownTextView: NSViewRepresentable {
             guard !isUpdatingFromSwiftUI else { return }
             guard let textView = notification.object as? NSTextView else { return }
 
+            // Capture the edited range for overlay fast-path optimisation
+            if let storage = textView.textStorage {
+                lastEditedRange = storage.editedRange
+            }
+
             isUpdatingDocument = true
             parent.document.text = textView.string
 
@@ -509,9 +517,15 @@ struct MarkdownTextView: NSViewRepresentable {
             updateCursorReveal()
             updateTableOverlays(stylingJustApplied: true)
 
-            // Re-run find if the find bar is visible
+            // Re-run find if the find bar is visible (debounced to avoid per-keystroke search)
             if isFindBarVisible {
-                performSearch(query: findState.searchText)
+                pendingFindWorkItem?.cancel()
+                let query = findState.searchText
+                let item = DispatchWorkItem { [weak self] in
+                    self?.performSearch(query: query)
+                }
+                pendingFindWorkItem = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: item)
             }
         }
 
@@ -526,9 +540,9 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             let cursorPos = textView.selectedRange().location
             var newCursorTable: NSRange?
-            for td in styleMap.tableData {
-                if NSLocationInRange(cursorPos, td.charRange) || cursorPos == NSMaxRange(td.charRange) {
-                    newCursorTable = td.charRange
+            for region in styleMap.tableRegions {
+                if NSLocationInRange(cursorPos, region.charRange) || cursorPos == NSMaxRange(region.charRange) {
+                    newCursorTable = region.charRange
                     break
                 }
             }
@@ -618,16 +632,16 @@ struct MarkdownTextView: NSViewRepresentable {
             let cursorPos = textView.selectedRange().location
             let proseWidth = (textView.textContainer as? MarkdownTextContainer)?.proseWidth ?? textView.frame.width
 
-            // Determine which table the cursor is in
+            // Determine which table the cursor is in (using cheap tableRegions, not lazy tableData)
             var newCursorTable: NSRange?
-            for td in styleMap.tableData {
-                if NSLocationInRange(cursorPos, td.charRange) || cursorPos == NSMaxRange(td.charRange) {
-                    newCursorTable = td.charRange
+            for region in styleMap.tableRegions {
+                if NSLocationInRange(cursorPos, region.charRange) || cursorPos == NSMaxRange(region.charRange) {
+                    newCursorTable = region.charRange
                     break
                 }
             }
 
-            // Determine which tables should get overlays
+            // Determine which tables should get overlays (triggers lazy tableData build)
             let overlaidTables = styleMap.tableData.filter { td in
                 if let ct = newCursorTable, NSEqualRanges(ct, td.charRange) {
                     return false
@@ -649,13 +663,22 @@ struct MarkdownTextView: NSViewRepresentable {
                     }
                 }
                 if match {
-                    // Re-apply collapsed text attributes and reposition
+                    // Only re-apply overlay attributes for overlays affected by the edit
+                    let editRange = lastEditedRange
                     for (i, entry) in tableOverlays.enumerated() {
                         let td = overlaidTables[i]
-                        markdownTextStorage?.applyTableOverlayAttributes(td.charRange, overlayHeight: entry.view.frame.height)
-                        positionOverlay(entry.view, for: td.charRange)
+                        if let er = editRange, NSIntersectionRange(er, td.charRange).length == 0
+                            && NSMaxRange(er) <= td.charRange.location {
+                            // Edit is entirely before this table and doesn't intersect — just reposition
+                            positionOverlay(entry.view, for: td.charRange)
+                        } else {
+                            // Edit intersects or is after table start — re-apply attributes
+                            markdownTextStorage?.applyTableOverlayAttributes(td.charRange, overlayHeight: entry.view.frame.height)
+                            positionOverlay(entry.view, for: td.charRange)
+                        }
                     }
                     cursorTableRange = newCursorTable
+                    lastEditedRange = nil
                     return
                 }
             }
@@ -749,8 +772,8 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             tableOverlays.removeAll()
             if needsRestyle {
-                // Re-apply styling to restore correct foreground colors and clear extra spacing
-                markdownTextStorage?.applyMarkdownStyling()
+                // Targeted restore: re-apply cached styles only on table ranges (no AST re-parse)
+                markdownTextStorage?.restoreTableAttributes(ranges)
                 if let textView, let lm = textView.layoutManager {
                     for range in ranges {
                         if range.location + range.length <= (textView.string as NSString).length {

@@ -87,30 +87,51 @@ final class MarkdownStyleMap {
     private(set) var allDelimiterRanges: [NSRange]
     /// Table regions with their required pixel width for horizontal scrolling.
     private(set) var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)]
-    /// Structured table data for overlay rendering.
-    private(set) var tableData: [TableData]
+
+    /// Structured table data for overlay rendering — built lazily on first access.
+    private(set) lazy var tableData: [TableData] = {
+        guard let document, let converter else { return [] }
+        return Self.buildTableData(from: document, converter: converter, textLength: textLength)
+    }()
+
+    /// Stored AST and converter for lazy tableData building.
+    private let document: Document?
+    private let converter: SourceRangeConverter?
+    private let textLength: Int
 
     init(text: String) {
         guard !text.isEmpty else {
             self.elements = []
             self.allDelimiterRanges = []
             self.tableRegions = []
-            self.tableData = []
+            self.document = nil
+            self.converter = nil
+            self.textLength = 0
             return
         }
-        let document = Document(parsing: text)
-        let converter = SourceRangeConverter(text)
-        var walker = StyleWalker(converter: converter, textLength: (text as NSString).length)
-        walker.visit(document)
+        let doc = Document(parsing: text)
+        let conv = SourceRangeConverter(text)
+        let len = (text as NSString).length
+        var walker = StyleWalker(converter: conv, textLength: len)
+        walker.visit(doc)
         self.elements = walker.elements
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
         self.tableRegions = walker.tableRegions
-        self.tableData = walker.tableDataList
+        self.document = doc
+        self.converter = conv
+        self.textLength = len
     }
 
     func appendElements(_ newElements: [StyledElement]) {
         elements.append(contentsOf: newElements)
         allDelimiterRanges.append(contentsOf: newElements.flatMap(\.delimiterRanges))
+    }
+
+    /// Walk only Table nodes in the AST to build TableData for overlay rendering.
+    private static func buildTableData(from document: Document, converter: SourceRangeConverter, textLength: Int) -> [TableData] {
+        var builder = TableDataBuilder(converter: converter, textLength: textLength)
+        builder.visit(document)
+        return builder.tableDataList
     }
 }
 
@@ -121,7 +142,6 @@ private struct StyleWalker: MarkupWalker {
     let textLength: Int
     var elements: [StyledElement] = []
     var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
-    var tableDataList: [TableData] = []
 
     // MARK: - Headings
 
@@ -426,121 +446,7 @@ private struct StyleWalker: MarkupWalker {
         } + CGFloat(max(0, columnCount - 1)) * charWidth + 2 * charWidth
         tableRegions.append((charRange: tableNS, requiredWidth: totalTableWidth))
 
-        // 5. Build TableData for overlay rendering with inline formatting
-        let headerFont = MarkdownTheme.shared.tableOverlayHeaderFont
-        let bodyFont = MarkdownTheme.shared.tableOverlayBodyFont
-
-        var tableRows: [[TableData.Cell]] = []
-        var propColumnWidths: [CGFloat] = Array(repeating: 0, count: columnCount)
-
-        // Header row — iterate AST nodes for inline formatting
-        var headerRow: [TableData.Cell] = []
-        for (colIdx, astCell) in table.head.cells.enumerated() {
-            if let cr = astCell.range, let ns = converter.nsRange(for: cr),
-               ns.location + ns.length <= textLength {
-                let attrText = Self.buildCellAttributedString(from: astCell, baseFont: headerFont)
-                headerRow.append(TableData.Cell(attributedText: attrText, isHeader: true, charRange: ns))
-                if colIdx < columnCount {
-                    propColumnWidths[colIdx] = max(propColumnWidths[colIdx], attrText.size().width + 24)
-                }
-            }
-        }
-        if !headerRow.isEmpty { tableRows.append(headerRow) }
-
-        // Body rows
-        for row in table.body.rows {
-            var bodyRow: [TableData.Cell] = []
-            for (colIdx, astCell) in row.cells.enumerated() {
-                if let cr = astCell.range, let ns = converter.nsRange(for: cr),
-                   ns.location + ns.length <= textLength {
-                    let attrText = Self.buildCellAttributedString(from: astCell, baseFont: bodyFont)
-                    bodyRow.append(TableData.Cell(attributedText: attrText, isHeader: false, charRange: ns))
-                    if colIdx < columnCount {
-                        propColumnWidths[colIdx] = max(propColumnWidths[colIdx], attrText.size().width + 24)
-                    }
-                }
-            }
-            if !bodyRow.isEmpty { tableRows.append(bodyRow) }
-        }
-
-        tableDataList.append(TableData(
-            charRange: tableNS,
-            requiredWidth: totalTableWidth,
-            columnCount: columnCount,
-            rows: tableRows,
-            maxColumnWidths: propColumnWidths
-        ))
-
         descendInto(table)
-    }
-
-    // MARK: - Cell attributed string building
-
-    /// Builds an NSAttributedString from a table cell's inline AST, handling bold/italic/code.
-    private static func buildCellAttributedString(from cell: Table.Cell, baseFont: NSFont) -> NSAttributedString {
-        let result = NSMutableAttributedString()
-        let color = MarkdownTheme.shared.defaultColor
-        for child in cell.children {
-            appendInlineContent(child, to: result, font: baseFont, color: color)
-        }
-        // Trim leading/trailing whitespace
-        let str = result.string
-        let leading = str.prefix(while: { $0.isWhitespace }).count
-        let trailing = str.reversed().prefix(while: { $0.isWhitespace }).count
-        if leading > 0 || trailing > 0 {
-            let len = max(0, result.length - leading - trailing)
-            if len > 0 {
-                return result.attributedSubstring(from: NSRange(location: leading, length: len))
-            }
-        }
-        return result
-    }
-
-    private static func appendInlineContent(_ node: Markup, to result: NSMutableAttributedString, font: NSFont, color: NSColor) {
-        let theme = MarkdownTheme.shared
-
-        if let text = node as? Text {
-            result.append(NSAttributedString(string: text.string, attributes: [.font: font, .foregroundColor: color]))
-        } else if node is SoftBreak {
-            result.append(NSAttributedString(string: " ", attributes: [.font: font, .foregroundColor: color]))
-        } else if let strong = node as? Strong {
-            let boldDesc = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.bold))
-            let boldFont = NSFont(descriptor: boldDesc, size: font.pointSize) ?? font
-            for child in strong.children {
-                appendInlineContent(child, to: result, font: boldFont, color: color)
-            }
-        } else if let emphasis = node as? Emphasis {
-            let italicDesc = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.italic))
-            let italicFont = NSFont(descriptor: italicDesc, size: font.pointSize) ?? font
-            for child in emphasis.children {
-                appendInlineContent(child, to: result, font: italicFont, color: color)
-            }
-        } else if let code = node as? InlineCode {
-            result.append(NSAttributedString(string: code.code, attributes: [
-                .font: theme.codeFont,
-                .foregroundColor: theme.codeColor,
-                .backgroundColor: theme.codeBackgroundColor,
-            ]))
-        } else if let _ = node as? Strikethrough {
-            let start = result.length
-            for child in node.children {
-                appendInlineContent(child, to: result, font: font, color: color)
-            }
-            if result.length > start {
-                result.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
-                                    range: NSRange(location: start, length: result.length - start))
-            }
-        } else if let _ = node as? Link {
-            // Render link text in link color, without the URL
-            for child in node.children {
-                appendInlineContent(child, to: result, font: font, color: theme.linkColor)
-            }
-        } else {
-            // Generic: recurse into children
-            for child in node.children {
-                appendInlineContent(child, to: result, font: font, color: color)
-            }
-        }
     }
 
     /// Collects pipe/gap ranges for a single table row (gaps between row bounds and cell ranges).
@@ -614,5 +520,182 @@ private struct StyleWalker: MarkupWalker {
             attributes: [.strikethroughStyle: NSUnderlineStyle.single.rawValue]
         ))
         descendInto(strikethrough)
+    }
+}
+
+// MARK: - TableDataBuilder (lazy, only walks Table nodes)
+
+private struct TableDataBuilder: MarkupWalker {
+    let converter: SourceRangeConverter
+    let textLength: Int
+    var tableDataList: [TableData] = []
+
+    mutating func visitTable(_ table: Table) {
+        guard let sourceRange = table.range,
+              let tableNS = converter.nsRange(for: sourceRange),
+              tableNS.location + tableNS.length <= textLength
+        else {
+            descendInto(table)
+            return
+        }
+
+        let head = table.head
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+
+        // Determine column count from head cells
+        let headCells = Array(head.cells)
+        let columnCount = headCells.count
+
+        // Compute totalTableWidth (mirrors StyleWalker logic for requiredWidth)
+        var maxMonoWidths: [Int: Int] = [:]
+        func countHidden(in node: Markup) -> Int {
+            var c = 0
+            for child in node.children {
+                if child is Strong { c += 4 }
+                else if child is Emphasis { c += 2 }
+                else if child is InlineCode { c += 2 }
+                else if child is Strikethrough { c += 4 }
+                else if let link = child as? Link {
+                    if let lr = link.range, let lns = converter.nsRange(for: lr) {
+                        var textLen = 0
+                        for lc in link.children {
+                            if let cr = lc.range, let ns = converter.nsRange(for: cr) { textLen += ns.length }
+                        }
+                        c += lns.length - textLen
+                    }
+                }
+                c += countHidden(in: child)
+            }
+            return c
+        }
+        for (colIdx, cell) in headCells.enumerated() {
+            if let cr = cell.range, let ns = converter.nsRange(for: cr),
+               ns.location + ns.length <= textLength {
+                let hidden = countHidden(in: cell)
+                maxMonoWidths[colIdx] = max(maxMonoWidths[colIdx, default: 0], max(0, ns.length - hidden))
+            }
+        }
+        for row in table.body.rows {
+            for (colIdx, cell) in row.cells.enumerated() {
+                if let cr = cell.range, let ns = converter.nsRange(for: cr),
+                   ns.location + ns.length <= textLength {
+                    let hidden = countHidden(in: cell)
+                    maxMonoWidths[colIdx] = max(maxMonoWidths[colIdx, default: 0], max(0, ns.length - hidden))
+                }
+            }
+        }
+        let totalTableWidth = (0..<columnCount).reduce(CGFloat(0)) { sum, col in
+            sum + CGFloat(maxMonoWidths[col, default: 0]) * charWidth
+        } + CGFloat(max(0, columnCount - 1)) * charWidth + 2 * charWidth
+
+        // Build TableData with inline formatting
+        let headerFont = MarkdownTheme.shared.tableOverlayHeaderFont
+        let bodyFont = MarkdownTheme.shared.tableOverlayBodyFont
+
+        var tableRows: [[TableData.Cell]] = []
+        var propColumnWidths: [CGFloat] = Array(repeating: 0, count: columnCount)
+
+        var headerRow: [TableData.Cell] = []
+        for (colIdx, astCell) in head.cells.enumerated() {
+            if let cr = astCell.range, let ns = converter.nsRange(for: cr),
+               ns.location + ns.length <= textLength {
+                let attrText = Self.buildCellAttributedString(from: astCell, baseFont: headerFont)
+                headerRow.append(TableData.Cell(attributedText: attrText, isHeader: true, charRange: ns))
+                if colIdx < columnCount {
+                    propColumnWidths[colIdx] = max(propColumnWidths[colIdx], attrText.size().width + 24)
+                }
+            }
+        }
+        if !headerRow.isEmpty { tableRows.append(headerRow) }
+
+        for row in table.body.rows {
+            var bodyRow: [TableData.Cell] = []
+            for (colIdx, astCell) in row.cells.enumerated() {
+                if let cr = astCell.range, let ns = converter.nsRange(for: cr),
+                   ns.location + ns.length <= textLength {
+                    let attrText = Self.buildCellAttributedString(from: astCell, baseFont: bodyFont)
+                    bodyRow.append(TableData.Cell(attributedText: attrText, isHeader: false, charRange: ns))
+                    if colIdx < columnCount {
+                        propColumnWidths[colIdx] = max(propColumnWidths[colIdx], attrText.size().width + 24)
+                    }
+                }
+            }
+            if !bodyRow.isEmpty { tableRows.append(bodyRow) }
+        }
+
+        tableDataList.append(TableData(
+            charRange: tableNS,
+            requiredWidth: totalTableWidth,
+            columnCount: columnCount,
+            rows: tableRows,
+            maxColumnWidths: propColumnWidths
+        ))
+
+        // Don't descend — we've already processed all table children
+    }
+
+    // MARK: - Cell attributed string building
+
+    private static func buildCellAttributedString(from cell: Table.Cell, baseFont: NSFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        let color = MarkdownTheme.shared.defaultColor
+        for child in cell.children {
+            appendInlineContent(child, to: result, font: baseFont, color: color)
+        }
+        let str = result.string
+        let leading = str.prefix(while: { $0.isWhitespace }).count
+        let trailing = str.reversed().prefix(while: { $0.isWhitespace }).count
+        if leading > 0 || trailing > 0 {
+            let len = max(0, result.length - leading - trailing)
+            if len > 0 {
+                return result.attributedSubstring(from: NSRange(location: leading, length: len))
+            }
+        }
+        return result
+    }
+
+    private static func appendInlineContent(_ node: Markup, to result: NSMutableAttributedString, font: NSFont, color: NSColor) {
+        let theme = MarkdownTheme.shared
+
+        if let text = node as? Text {
+            result.append(NSAttributedString(string: text.string, attributes: [.font: font, .foregroundColor: color]))
+        } else if node is SoftBreak {
+            result.append(NSAttributedString(string: " ", attributes: [.font: font, .foregroundColor: color]))
+        } else if let strong = node as? Strong {
+            let boldDesc = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.bold))
+            let boldFont = NSFont(descriptor: boldDesc, size: font.pointSize) ?? font
+            for child in strong.children {
+                appendInlineContent(child, to: result, font: boldFont, color: color)
+            }
+        } else if let emphasis = node as? Emphasis {
+            let italicDesc = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.italic))
+            let italicFont = NSFont(descriptor: italicDesc, size: font.pointSize) ?? font
+            for child in emphasis.children {
+                appendInlineContent(child, to: result, font: italicFont, color: color)
+            }
+        } else if let code = node as? InlineCode {
+            result.append(NSAttributedString(string: code.code, attributes: [
+                .font: theme.codeFont,
+                .foregroundColor: theme.codeColor,
+                .backgroundColor: theme.codeBackgroundColor,
+            ]))
+        } else if let _ = node as? Strikethrough {
+            let start = result.length
+            for child in node.children {
+                appendInlineContent(child, to: result, font: font, color: color)
+            }
+            if result.length > start {
+                result.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
+                                    range: NSRange(location: start, length: result.length - start))
+            }
+        } else if let _ = node as? Link {
+            for child in node.children {
+                appendInlineContent(child, to: result, font: font, color: theme.linkColor)
+            }
+        } else {
+            for child in node.children {
+                appendInlineContent(child, to: result, font: font, color: color)
+            }
+        }
     }
 }
