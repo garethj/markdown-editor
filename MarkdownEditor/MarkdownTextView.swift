@@ -1016,15 +1016,24 @@ struct MarkdownTextView: NSViewRepresentable {
                 alert.alertStyle = .warning
 
                 if let window = textView?.window {
-                    alert.beginSheetModal(for: window) { response in
+                    alert.beginSheetModal(for: window) { [weak self] response in
                         if response == .alertFirstButtonReturn {
-                            doc.text = newText
+                            self?.applyExternalText(newText, to: doc)
                         }
                     }
                 }
             } else {
-                doc.text = newText
+                applyExternalText(newText, to: doc)
             }
+        }
+
+        /// Apply externally-loaded text without polluting the undo stack.
+        private func applyExternalText(_ newText: String, to doc: MarkdownDocument) {
+            doc.text = newText
+            // Clear undo actions registered by the programmatic text replacement
+            // so that canUndo only reflects real user edits.
+            parent.undoManager?.removeAllActions()
+            textView?.undoManager?.removeAllActions()
         }
     }
 }
