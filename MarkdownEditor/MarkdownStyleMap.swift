@@ -124,6 +124,7 @@ final class MarkdownStyleMap {
 
     func appendElements(_ newElements: [StyledElement]) {
         elements.append(contentsOf: newElements)
+        elements.sort { $0.fullRange.location < $1.fullRange.location }
         allDelimiterRanges.append(contentsOf: newElements.flatMap(\.delimiterRanges))
     }
 
