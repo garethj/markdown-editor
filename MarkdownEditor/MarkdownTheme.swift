@@ -169,24 +169,6 @@ final class MarkdownTheme {
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
-    // MARK: - Table overlay
-
-    /// Minimum column width in points.
-    var tableOverlayMinColumnWidth: CGFloat { 72 }
-    /// Maximum column width as fraction of prose width.
-    var tableOverlayMaxColumnFraction: CGFloat { 0.5 }
-
-    var tableOverlayGridColor: NSColor {
-        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(calibratedWhite: 1.0, alpha: 0.12)
-            : NSColor(calibratedWhite: 0.0, alpha: 0.12)
-    }
-
-    var tableOverlayHeaderFont: NSFont { boldFont }
-    var tableOverlayBodyFont: NSFont { defaultFont }
-
-    var tableOverlayBackgroundColor: NSColor { backgroundColor }
-
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
         let idx = max(0, min(level - 1, cachedHeadingAttributes.count - 1))
         return cachedHeadingAttributes[idx]
