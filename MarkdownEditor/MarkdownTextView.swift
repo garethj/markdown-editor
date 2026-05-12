@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Editor view (SwiftUI wrapper)
 
@@ -313,6 +314,9 @@ struct MarkdownTextView: NSViewRepresentable {
         // Observe appearance changes for dark mode
         context.coordinator.observeAppearance()
 
+        // Observe PDF export notification
+        context.coordinator.observeExportToPDF()
+
         // Set window frame autosave so macOS remembers size/position across launches
         DispatchQueue.main.async {
             scrollView.window?.setFrameAutosaveName("MarkdownEditorDocument")
@@ -371,6 +375,8 @@ struct MarkdownTextView: NSViewRepresentable {
         private var appearanceObserver: NSObjectProtocol?
         private var clipViewBoundsObserver: NSObjectProtocol?
         private var clipViewFrameObserver: NSObjectProtocol?
+        private var exportObserver: NSObjectProtocol?
+        private var pdfExporter: MarkdownPDFExporter?
 
         // Find bar
         let findState = FindState()
@@ -390,6 +396,9 @@ struct MarkdownTextView: NSViewRepresentable {
                 NotificationCenter.default.removeObserver(obs)
             }
             if let obs = clipViewFrameObserver {
+                NotificationCenter.default.removeObserver(obs)
+            }
+            if let obs = exportObserver {
                 NotificationCenter.default.removeObserver(obs)
             }
             fileWatcher?.stop()
@@ -926,6 +935,77 @@ struct MarkdownTextView: NSViewRepresentable {
             // so that canUndo only reflects real user edits.
             parent.undoManager?.removeAllActions()
             textView?.undoManager?.removeAllActions()
+        }
+
+        // MARK: - PDF export
+
+        func observeExportToPDF() {
+            exportObserver = NotificationCenter.default.addObserver(
+                forName: .exportToPDF,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self, self.textView?.window?.isKeyWindow == true else { return }
+                self.exportToPDF()
+            }
+        }
+
+        private func exportToPDF() {
+            let text = parent.document.text
+            let fileURL = parent.fileURL
+            let baseURL = fileURL?.deletingLastPathComponent()
+
+            let renderer = MarkdownHTMLRenderer(baseURL: baseURL)
+            let html = renderer.fullDocument(markdown: text)
+            let suggestedName = firstHeading(from: text)
+                ?? fileURL?.deletingPathExtension().lastPathComponent
+                ?? "Document"
+
+            pdfExporter = MarkdownPDFExporter()
+            pdfExporter?.export(html: html, baseURL: baseURL) { [weak self] result in
+                guard let self else { return }
+                switch result {
+                case .success(let data):
+                    self.savePDF(data, suggestedName: suggestedName, near: fileURL)
+                case .failure(let error):
+                    self.showExportError(error)
+                }
+                self.pdfExporter = nil
+            }
+        }
+
+        private func savePDF(_ data: Data, suggestedName: String, near sourceURL: URL?) {
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.nameFieldStringValue = suggestedName + ".pdf"
+            if let dir = sourceURL?.deletingLastPathComponent() {
+                panel.directoryURL = dir
+            }
+            guard let window = textView?.window else { return }
+            panel.beginSheetModal(for: window) { [weak self] response in
+                guard response == .OK, let url = panel.url else { return }
+                do {
+                    try data.write(to: url)
+                } catch {
+                    self?.showExportError(error)
+                }
+            }
+        }
+
+        private func showExportError(_ error: Error) {
+            guard let window = textView?.window else { return }
+            let alert = NSAlert(error: error)
+            alert.beginSheetModal(for: window)
+        }
+
+        private func firstHeading(from text: String) -> String? {
+            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                let str = line.trimmingCharacters(in: .whitespaces)
+                if str.hasPrefix("# ") {
+                    return String(str.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            return nil
         }
     }
 }

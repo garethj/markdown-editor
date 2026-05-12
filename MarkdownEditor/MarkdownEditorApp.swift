@@ -9,5 +9,14 @@ struct MarkdownEditorApp: App {
                 .frame(minWidth: 500, minHeight: 400)
         }
         .defaultSize(width: 900, height: 700)
+        .commands {
+            CommandGroup(after: .saveItem) {
+                Divider()
+                Button("Export as PDF…") {
+                    NotificationCenter.default.post(name: .exportToPDF, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+            }
+        }
     }
 }
