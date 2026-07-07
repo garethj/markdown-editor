@@ -6,12 +6,25 @@ extension UTType {
 }
 
 final class MarkdownDocument: ReferenceFileDocument {
+    /// Above this size, `EditorView` withholds the real editor behind a
+    /// warning until the user opts in — the markdown parse/style pipeline
+    /// re-runs in full on every keystroke, so large files stay slow to edit
+    /// even after they've opened.
+    static let largeFileThresholdBytes = 2 * 1024 * 1024
+
     @Published var text: String
 
     /// Content last *confirmed* (by direct read-back) to have reached disk.
     /// This is the source of truth for "are there unsaved changes" — it only
     /// advances once a write is verified, never optimistically at save time.
     @Published private(set) var lastConfirmedSavedText: String
+
+    /// Size in bytes of the file as read from disk (0 for new/empty documents).
+    let fileSizeBytes: Int
+
+    /// Whether the user has opted to load a file above `largeFileThresholdBytes`.
+    /// Starts `true` for files at or under the threshold.
+    @Published var didConfirmLargeFileLoad: Bool
 
     /// Called synchronously from `snapshot(contentType:)` with the text about
     /// to be written, so observers can kick off save verification.
@@ -23,6 +36,8 @@ final class MarkdownDocument: ReferenceFileDocument {
     init(text: String = "") {
         self.text = text
         self.lastConfirmedSavedText = text
+        self.fileSizeBytes = 0
+        self.didConfirmLargeFileLoad = true
     }
 
     required init(configuration: ReadConfiguration) throws {
@@ -33,6 +48,8 @@ final class MarkdownDocument: ReferenceFileDocument {
         }
         self.text = string
         self.lastConfirmedSavedText = string
+        self.fileSizeBytes = data.count
+        self.didConfirmLargeFileLoad = data.count <= Self.largeFileThresholdBytes
     }
 
     typealias Snapshot = String

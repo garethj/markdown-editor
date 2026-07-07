@@ -10,10 +10,59 @@ struct EditorView: View {
     @Environment(\.undoManager) var undoManager
 
     var body: some View {
-        VStack(spacing: 0) {
-            MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager)
-            StatusBarView(text: document.text, hasUnsavedChanges: document.text != document.lastConfirmedSavedText)
+        if document.didConfirmLargeFileLoad {
+            VStack(spacing: 0) {
+                MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager)
+                StatusBarView(text: document.text, hasUnsavedChanges: document.text != document.lastConfirmedSavedText)
+            }
+        } else {
+            LargeFileWarningView(
+                fileSizeBytes: document.fileSizeBytes,
+                onOpenAnyway: { document.didConfirmLargeFileLoad = true },
+                onCancel: { NSApp.keyWindow?.performClose(nil) }
+            )
         }
+    }
+}
+
+// MARK: - Large file warning
+
+struct LargeFileWarningView: View {
+    let fileSizeBytes: Int
+    let onOpenAnyway: () -> Void
+    let onCancel: () -> Void
+
+    private var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: Int64(fileSizeBytes), countStyle: .file)
+    }
+
+    private var formattedThreshold: String {
+        ByteCountFormatter.string(fromByteCount: Int64(MarkdownDocument.largeFileThresholdBytes), countStyle: .file)
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundColor(.orange)
+            Text("Large File")
+                .font(.title2)
+                .bold()
+            Text("This file is \(formattedSize), larger than the recommended \(formattedThreshold) limit. Editing large files can be slow — every keystroke re-parses the whole document.")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            HStack(spacing: 12) {
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Open Anyway", action: onOpenAnyway)
+                    .keyboardShortcut(.defaultAction)
+            }
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
