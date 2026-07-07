@@ -12,7 +12,7 @@ struct EditorView: View {
     var body: some View {
         VStack(spacing: 0) {
             MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager)
-            StatusBarView(text: document.text)
+            StatusBarView(text: document.text, hasUnsavedChanges: document.text != document.lastConfirmedSavedText)
         }
     }
 }
@@ -21,10 +21,16 @@ struct EditorView: View {
 
 struct StatusBarView: View {
     let text: String
+    let hasUnsavedChanges: Bool
     @StateObject private var counter = DebouncedWordCounter()
 
     var body: some View {
         HStack {
+            if hasUnsavedChanges {
+                Text("Unsaved Changes")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+            }
             Spacer()
             Text("\(counter.wordCount) words  \(counter.characterCount) characters")
                 .font(.system(size: 11))
@@ -32,6 +38,7 @@ struct StatusBarView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
         }
+        .padding(.leading, 12)
         .background(Color(nsColor: .windowBackgroundColor))
         .onChange(of: text) { _, newText in
             counter.schedule(newText)
@@ -384,8 +391,16 @@ struct MarkdownTextView: NSViewRepresentable {
         var findBarAccessory: NSTitlebarAccessoryViewController?
         private var pendingFindWorkItem: DispatchWorkItem?
 
+        // Save verification (confirms writes actually reached disk)
+        private var pendingSaveText: String?
+        private var saveVerificationAttempt = 0
+
         init(_ parent: MarkdownTextView) {
             self.parent = parent
+            super.init()
+            parent.document.onWillSave = { [weak self] savedText in
+                self?.scheduleSaveVerification(expecting: savedText)
+            }
         }
 
         deinit {
@@ -901,40 +916,149 @@ struct MarkdownTextView: NSViewRepresentable {
 
             let doc = parent.document
 
+            // Our own save (confirmed or still in flight) echoing back through the
+            // watcher — atomic writes replace the inode, which looks identical to an
+            // external edit at the FileWatcher level. Recognize it by content instead
+            // of timing so it never trips the conflict dialog.
+            if newText == doc.lastConfirmedSavedText || newText == pendingSaveText {
+                if newText != doc.lastConfirmedSavedText {
+                    doc.markSaveConfirmed(newText)
+                    pendingSaveText = nil
+                }
+                return
+            }
+
             // If the file on disk matches the current document, ignore —
             // this happens when macOS auto-save writes the file (e.g. on focus loss).
             guard newText != doc.text else { return }
 
-            let hasLocalChanges = (parent.undoManager?.canUndo ?? false)
+            // Content-based check: are there edits since the last confirmed save?
+            // (Not `undoManager.canUndo` — that stays true forever after the first
+            // keystroke of a session since dirty-tracking undo actions are never
+            // popped by an ordinary save.)
+            let hasLocalChanges = doc.text != doc.lastConfirmedSavedText
 
             if hasLocalChanges {
-                // Show conflict alert
-                let alert = NSAlert()
-                alert.messageText = "File Changed"
-                alert.informativeText = "This file was modified externally. What would you like to do?"
-                alert.addButton(withTitle: "Reload")
-                alert.addButton(withTitle: "Keep Mine")
-                alert.alertStyle = .warning
-
-                if let window = textView?.window {
-                    alert.beginSheetModal(for: window) { [weak self] response in
-                        if response == .alertFirstButtonReturn {
-                            self?.applyExternalText(newText, to: doc)
-                        }
-                    }
-                }
+                presentConflictAlert(newText: newText, doc: doc)
             } else {
                 applyExternalText(newText, to: doc)
             }
         }
 
+        private func presentConflictAlert(newText: String, doc: MarkdownDocument) {
+            guard let window = textView?.window else { return }
+            let textAtAlertTime = doc.text
+
+            let alert = NSAlert()
+            alert.messageText = "File Changed on Disk"
+            alert.informativeText = """
+                This file was modified outside the editor while you have unsaved changes here.
+
+                Reload to load the external version — your current edits will be copied to the clipboard first, just in case. Keep Mine to discard the external version (it will be overwritten the next time you save).
+                """
+            alert.addButton(withTitle: "Reload")
+            alert.addButton(withTitle: "Keep Mine")
+            alert.alertStyle = .warning
+
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard let self, response == .alertFirstButtonReturn else { return }
+
+                // Safety net: always copy what's about to be discarded, in case the
+                // user needs to recover it manually.
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(doc.text, forType: .string)
+
+                let userKeptTyping = doc.text != textAtAlertTime
+                self.applyExternalText(newText, to: doc)
+
+                if userKeptTyping {
+                    self.notifyClipboardSafetyNet(window: window)
+                }
+            }
+        }
+
+        private func notifyClipboardSafetyNet(window: NSWindow) {
+            let alert = NSAlert()
+            alert.messageText = "Your Latest Edits Were Copied"
+            alert.informativeText = "You kept typing while the file-changed dialog was open, so those edits were about to be discarded. They've been copied to the clipboard — paste them somewhere safe if you need them."
+            alert.alertStyle = .informational
+            alert.beginSheetModal(for: window)
+        }
+
         /// Apply externally-loaded text without polluting the undo stack.
         private func applyExternalText(_ newText: String, to doc: MarkdownDocument) {
             doc.text = newText
+            doc.markSaveConfirmed(newText)
             // Clear undo actions registered by the programmatic text replacement
             // so that canUndo only reflects real user edits.
             parent.undoManager?.removeAllActions()
             textView?.undoManager?.removeAllActions()
+        }
+
+        // MARK: - Save verification
+
+        private func scheduleSaveVerification(expecting text: String) {
+            pendingSaveText = text
+            saveVerificationAttempt = 0
+            verifySaveAfterDelay(0.4)
+        }
+
+        private func verifySaveAfterDelay(_ delay: TimeInterval) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.verifySave()
+            }
+        }
+
+        private func verifySave() {
+            guard let url = watchedURL ?? parent.fileURL,
+                  let expected = pendingSaveText
+            else { return }
+
+            let doc = parent.document
+            guard let diskText = try? String(contentsOf: url, encoding: .utf8) else {
+                retryOrFailSaveVerification()
+                return
+            }
+
+            if diskText == expected {
+                doc.markSaveConfirmed(expected)
+                pendingSaveText = nil
+            } else if diskText == doc.text {
+                // A newer save has already superseded this one — confirmed either way.
+                doc.markSaveConfirmed(diskText)
+                pendingSaveText = nil
+            } else {
+                retryOrFailSaveVerification()
+            }
+        }
+
+        private func retryOrFailSaveVerification() {
+            saveVerificationAttempt += 1
+            if saveVerificationAttempt == 1 {
+                verifySaveAfterDelay(1.0)
+            } else if saveVerificationAttempt == 2 {
+                verifySaveAfterDelay(2.0)
+            } else {
+                showSaveVerificationWarning()
+                pendingSaveText = nil
+            }
+        }
+
+        private func showSaveVerificationWarning() {
+            guard let window = textView?.window else { return }
+            let alert = NSAlert()
+            alert.messageText = "Save May Not Have Completed"
+            alert.informativeText = "The last save doesn't appear to have reached disk. Your current text is still safely in the editor — copy it now as a backup before doing anything else."
+            alert.addButton(withTitle: "Copy Text")
+            alert.addButton(withTitle: "Dismiss")
+            alert.alertStyle = .critical
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn, let self else { return }
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(self.parent.document.text, forType: .string)
+            }
         }
 
         // MARK: - PDF export
