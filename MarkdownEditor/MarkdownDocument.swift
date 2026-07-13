@@ -10,7 +10,7 @@ final class MarkdownDocument: ReferenceFileDocument {
     /// warning until the user opts in — the markdown parse/style pipeline
     /// re-runs in full on every keystroke, so large files stay slow to edit
     /// even after they've opened.
-    static let largeFileThresholdBytes = 2 * 1024 * 1024
+    static let largeFileThresholdBytes = 512 * 1024
 
     @Published var text: String
 
