@@ -251,6 +251,36 @@ final class EditorTextView: NSTextView {
     }
 }
 
+// MARK: - Scroll view with window-frame restore
+
+/// Restores the window's saved frame the moment this view attaches to a window,
+/// racing SwiftUI's own `.defaultSize` application for that scene. Doing this
+/// synchronously in `viewDidMoveToWindow` (rather than via `DispatchQueue.main.async`,
+/// which cedes a full run-loop turn) wins that race in the common case; the two
+/// follow-up rechecks catch the rarer case where SwiftUI's own sizing pass is
+/// itself deferred and still clobbers the restored frame after we've set it.
+final class MarkdownScrollView: NSScrollView {
+    private static let frameAutosaveName = "MarkdownEditorDocument"
+    private var didRestoreFrame = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window, !didRestoreFrame else { return }
+        didRestoreFrame = true
+
+        window.setFrameAutosaveName(Self.frameAutosaveName)
+        let restoredFrame = window.frame
+
+        func reassertIfClobbered() {
+            if window.frame != restoredFrame {
+                window.setFrame(restoredFrame, display: true)
+            }
+        }
+        DispatchQueue.main.async { reassertIfClobbered() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { reassertIfClobbered() }
+    }
+}
+
 // MARK: - NSViewRepresentable bridge
 
 struct MarkdownTextView: NSViewRepresentable {
@@ -263,7 +293,7 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = MarkdownScrollView()
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
@@ -373,11 +403,6 @@ struct MarkdownTextView: NSViewRepresentable {
         // Observe PDF export notification
         context.coordinator.observeExportToPDF()
 
-        // Set window frame autosave so macOS remembers size/position across launches
-        DispatchQueue.main.async {
-            scrollView.window?.setFrameAutosaveName("MarkdownEditorDocument")
-        }
-
         // Start file watching if we have a URL
         if let url = fileURL {
             context.coordinator.startWatching(url: url)
@@ -473,6 +498,14 @@ struct MarkdownTextView: NSViewRepresentable {
         /// Coalesce flag to prevent duplicate handling when both bounds and frame fire together
         private var clipViewUpdateScheduled = false
 
+        /// The clip view origin as of the end of the last `handleClipViewChange` call.
+        /// Notifications are coalesced (see below), so by the time this method runs the
+        /// clip view's *current* bounds may already reflect a spurious mid-transition
+        /// drift — this tracks the last known-good origin instead, so we can tell "was
+        /// genuinely at the top/left before this resize" from "the resize itself moved
+        /// us away from the top/left."
+        private var lastStableClipOrigin: NSPoint = .zero
+
         func observeClipViewBounds(scrollView: NSScrollView) {
             let clipView = scrollView.contentView
             clipView.postsBoundsChangedNotifications = true
@@ -505,6 +538,19 @@ struct MarkdownTextView: NSViewRepresentable {
             guard let textView,
                   let container = textView.textContainer as? MarkdownTextContainer
             else { return }
+
+            // A width-driven reflow (see below) changes the document's total height,
+            // and NSClipView's own point-based scroll preservation across that kind
+            // of resize can leave a small spurious residual offset — concretely
+            // measured as ~10pt of vertical drift when entering full screen while
+            // already scrolled to the top, which visibly eats into the top inset.
+            // Bounds/frame notifications are coalesced above, so by the time this
+            // runs `clipView.bounds` may already reflect that drift — compare
+            // against the last known-good origin instead of the current bounds.
+            let epsilon: CGFloat = 2
+            let wasAtTop = lastStableClipOrigin.y < epsilon
+            let wasAtLeft = lastStableClipOrigin.x < epsilon
+
             let clipWidth = clipView.bounds.width
             let newProseWidth = clipWidth - textView.textContainerInset.width * 2
             let widthChanged = newProseWidth > 0 && abs(container.proseWidth - newProseWidth) > 1
@@ -516,6 +562,25 @@ struct MarkdownTextView: NSViewRepresentable {
             if abs(textView.frame.width - neededWidth) > 1 {
                 textView.frame.size.width = neededWidth
             }
+
+            if widthChanged {
+                var correctedOrigin = clipView.bounds.origin
+                var needsCorrection = false
+                if wasAtTop && clipView.bounds.minY > epsilon {
+                    correctedOrigin.y = 0
+                    needsCorrection = true
+                }
+                if wasAtLeft && clipView.bounds.minX > epsilon {
+                    correctedOrigin.x = 0
+                    needsCorrection = true
+                }
+                if needsCorrection {
+                    clipView.scroll(to: correctedOrigin)
+                    textView.enclosingScrollView?.reflectScrolledClipView(clipView)
+                }
+            }
+
+            lastStableClipOrigin = clipView.bounds.origin
         }
 
         // MARK: - Appearance
