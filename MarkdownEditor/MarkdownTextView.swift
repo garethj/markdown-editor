@@ -143,11 +143,11 @@ struct StatusBarView: View {
     }
 
     private var statusText: String {
-        var parts = ["\(counter.wordCount) words"]
+        var parts = ["\(counter.wordCount.formatted()) words"]
         if counter.readingTimeMinutes > 0 {
             parts.append("\(counter.readingTimeMinutes) min read")
         }
-        parts.append("\(counter.characterCount) characters")
+        parts.append("\(counter.characterCount.formatted()) characters")
         return parts.joined(separator: "  ")
     }
 }
