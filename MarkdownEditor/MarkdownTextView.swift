@@ -81,7 +81,7 @@ struct StatusBarView: View {
                     .foregroundColor(.orange)
             }
             Spacer()
-            Text("\(counter.wordCount) words  \(counter.characterCount) characters")
+            Text(statusText)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 12)
@@ -96,11 +96,22 @@ struct StatusBarView: View {
             counter.computeNow(text)
         }
     }
+
+    private var statusText: String {
+        var parts = ["\(counter.wordCount) words"]
+        if counter.readingTimeMinutes > 0 {
+            parts.append("\(counter.readingTimeMinutes) min read")
+        }
+        parts.append("\(counter.characterCount) characters")
+        return parts.joined(separator: "  ")
+    }
 }
 
 private final class DebouncedWordCounter: ObservableObject {
     @Published var wordCount: Int = 0
     @Published var characterCount: Int = 0
+    @Published var readingTimeMinutes: Int = 0
+    private static let averageWordsPerMinute = 200.0
     private var debounceItem: DispatchWorkItem?
 
     func schedule(_ text: String) {
@@ -116,8 +127,11 @@ private final class DebouncedWordCounter: ObservableObject {
         characterCount = text.count
         if text.isEmpty {
             wordCount = 0
+            readingTimeMinutes = 0
         } else {
-            wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+            let words = text.split { $0.isWhitespace || $0.isNewline }.count
+            wordCount = words
+            readingTimeMinutes = max(1, Int(ceil(Double(words) / Self.averageWordsPerMinute)))
         }
     }
 }
