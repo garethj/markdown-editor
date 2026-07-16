@@ -127,6 +127,7 @@ private final class DebouncedWordCounter: ObservableObject {
 final class EditorTextView: NSTextView {
     var formatHandler: ((FormatAction) -> Void)?
     var findHandler: ((FindAction) -> Void)?
+    var checkboxClickHandler: ((Int) -> Bool)?
 
     enum FormatAction {
         case bold, italic, link, codeBlock, heading(Int), highlight
@@ -143,6 +144,14 @@ final class EditorTextView: NSTextView {
            let url = linkURL(at: event) {
             NSWorkspace.shared.open(url)
             return
+        }
+        if event.clickCount == 1 {
+            let localPoint = convert(event.locationInWindow, from: nil)
+            let charIndex = characterIndex(at: localPoint)
+            if charIndex < (string as NSString).length,
+               checkboxClickHandler?(charIndex) == true {
+                return
+            }
         }
         super.mouseDown(with: event)
     }
@@ -346,6 +355,11 @@ struct MarkdownTextView: NSViewRepresentable {
         // Format action handler
         textView.formatHandler = { [weak coordinator = context.coordinator] action in
             coordinator?.handleFormatAction(action)
+        }
+
+        // Checkbox click handler (task-list toggle)
+        textView.checkboxClickHandler = { [weak coordinator = context.coordinator] charIndex in
+            coordinator?.handleCheckboxClick(at: charIndex) ?? false
         }
 
         scrollView.documentView = textView
@@ -718,6 +732,19 @@ struct MarkdownTextView: NSViewRepresentable {
                 }
                 textView.needsDisplay = true
             }
+        }
+
+        // MARK: - Checkbox toggling
+
+        func handleCheckboxClick(at charIndex: Int) -> Bool {
+            guard let textView, let styleMap = markdownTextStorage?.lastStyleMap,
+                  let checkbox = styleMap.checkboxes.first(where: { NSLocationInRange(charIndex, $0.range) })
+            else { return false }
+
+            let newBracket = checkbox.checked ? "[ ]" : "[x]"
+            textView.window?.makeFirstResponder(textView)
+            textView.insertText(newBracket, replacementRange: checkbox.range)
+            return true
         }
 
         // MARK: - Format actions

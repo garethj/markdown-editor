@@ -72,12 +72,15 @@ final class MarkdownStyleMap {
     private(set) var allDelimiterRanges: [NSRange]
     /// Table regions with their required pixel width for horizontal scrolling.
     private(set) var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)]
+    /// Task-list checkbox bracket ranges (e.g. the 3 characters "[ ]" or "[x]"), for click-to-toggle.
+    private(set) var checkboxes: [(range: NSRange, checked: Bool)]
 
     init(text: String) {
         guard !text.isEmpty else {
             self.elements = []
             self.allDelimiterRanges = []
             self.tableRegions = []
+            self.checkboxes = []
             return
         }
         let doc = Document(parsing: text)
@@ -88,6 +91,7 @@ final class MarkdownStyleMap {
         self.elements = walker.elements
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
         self.tableRegions = walker.tableRegions
+        self.checkboxes = walker.checkboxes
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -105,6 +109,7 @@ private struct StyleWalker: MarkupWalker {
     let textLength: Int
     var elements: [StyledElement] = []
     var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
+    var checkboxes: [(range: NSRange, checked: Bool)] = []
 
     // MARK: - Headings
 
@@ -267,6 +272,45 @@ private struct StyleWalker: MarkupWalker {
             attributes: attrs
         ))
         descendInto(link)
+    }
+
+    // MARK: - Task list checkboxes
+
+    mutating func visitListItem(_ listItem: ListItem) {
+        if let checkbox = listItem.checkbox,
+           let sourceRange = listItem.range,
+           let itemNS = converter.nsRange(for: sourceRange),
+           itemNS.location + itemNS.length <= textLength,
+           let bracketRange = checkboxBracketRange(in: itemNS) {
+            let checked = checkbox == .checked
+            checkboxes.append((range: bracketRange, checked: checked))
+            elements.append(StyledElement(
+                fullRange: bracketRange,
+                contentRange: bracketRange,
+                delimiterRanges: [],
+                attributes: checked
+                    ? MarkdownTheme.shared.checkboxCheckedAttributes
+                    : MarkdownTheme.shared.checkboxUncheckedAttributes
+            ))
+        }
+        descendInto(listItem)
+    }
+
+    /// Locates the "[ ]"/"[x]"/"[X]" bracket within a list item's source range.
+    /// The bracket always sits shortly after the bullet marker, so the search
+    /// window only needs to cover marker + indentation, not the whole item.
+    private func checkboxBracketRange(in itemRange: NSRange) -> NSRange? {
+        let text = converter.fullString as NSString
+        let searchLength = min(24, itemRange.length)
+        guard searchLength > 0, itemRange.location + searchLength <= text.length else { return nil }
+        let snippet = text.substring(with: NSRange(location: itemRange.location, length: searchLength))
+        for pattern in ["[ ]", "[x]", "[X]"] {
+            if let r = snippet.range(of: pattern) {
+                let offset = snippet.distance(from: snippet.startIndex, to: r.lowerBound)
+                return NSRange(location: itemRange.location + offset, length: 3)
+            }
+        }
+        return nil
     }
 
     // MARK: - Block quotes

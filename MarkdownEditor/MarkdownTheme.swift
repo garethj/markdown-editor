@@ -27,6 +27,7 @@ final class MarkdownTheme {
     private(set) var cursorColor: NSColor
     private(set) var findMatchColor: NSColor
     private(set) var findCurrentMatchColor: NSColor
+    private(set) var checkboxCheckedColor: NSColor
 
     // MARK: - Sizes
 
@@ -54,6 +55,7 @@ final class MarkdownTheme {
         cursorColor = .textColor
         findMatchColor = .yellow
         findCurrentMatchColor = .orange
+        checkboxCheckedColor = .systemGreen
         updateForCurrentAppearance()
     }
 
@@ -106,6 +108,9 @@ final class MarkdownTheme {
         findCurrentMatchColor = isDark
             ? NSColor(calibratedRed: 0.9, green: 0.5, blue: 0.1, alpha: 0.7)
             : NSColor(calibratedRed: 1.0, green: 0.6, blue: 0.0, alpha: 0.5)
+        checkboxCheckedColor = isDark
+            ? NSColor(calibratedRed: 0.35, green: 0.78, blue: 0.45, alpha: 1)
+            : NSColor(calibratedRed: 0.2, green: 0.6, blue: 0.3, alpha: 1)
 
         rebuildCachedAttributes()
     }
@@ -138,6 +143,8 @@ final class MarkdownTheme {
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
+        checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: delimiterColor]
+        checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: checkboxCheckedColor]
 
         // Pre-compute heading attribute dicts for all 6 levels
         cachedHeadingAttributes = headingSizes.enumerated().map { (idx, _) -> [NSAttributedString.Key: Any] in
@@ -167,6 +174,8 @@ final class MarkdownTheme {
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
