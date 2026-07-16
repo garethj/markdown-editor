@@ -159,6 +159,7 @@ final class MarkdownTheme {
         highlightAttributes = [.backgroundColor: highlightColor]
         checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: delimiterColor]
         checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: checkboxCheckedColor]
+        listMarkerAttributes = [.foregroundColor: linkColor]
 
         // Pre-compute heading attribute dicts for all 6 levels
         cachedHeadingAttributes = headingSizes.enumerated().map { (idx, _) -> [NSAttributedString.Key: Any] in
@@ -190,6 +191,7 @@ final class MarkdownTheme {
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var listMarkerAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {

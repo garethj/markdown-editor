@@ -76,6 +76,9 @@ final class MarkdownStyleMap {
     private(set) var checkboxes: [(range: NSRange, checked: Bool)]
     /// Headings in document order, for the table of contents.
     private(set) var headings: [(range: NSRange, level: Int, title: String)]
+    /// Character index → replacement glyph character, for reshaping unordered
+    /// bullet markers ("-"/"*") into filled/hollow circles and diamonds by depth.
+    private(set) var listMarkerGlyphOverrides: [(location: Int, character: Character)]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -84,6 +87,7 @@ final class MarkdownStyleMap {
             self.tableRegions = []
             self.checkboxes = []
             self.headings = []
+            self.listMarkerGlyphOverrides = []
             return
         }
         let doc = Document(parsing: text)
@@ -96,6 +100,7 @@ final class MarkdownStyleMap {
         self.tableRegions = walker.tableRegions
         self.checkboxes = walker.checkboxes
         self.headings = walker.headings
+        self.listMarkerGlyphOverrides = walker.listMarkerGlyphOverrides
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -115,6 +120,8 @@ private struct StyleWalker: MarkupWalker {
     var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
     var checkboxes: [(range: NSRange, checked: Bool)] = []
     var headings: [(range: NSRange, level: Int, title: String)] = []
+    var listMarkerGlyphOverrides: [(location: Int, character: Character)] = []
+    var listDepth = 0
 
     // MARK: - Headings
 
@@ -284,26 +291,100 @@ private struct StyleWalker: MarkupWalker {
         descendInto(link)
     }
 
-    // MARK: - Task list checkboxes
+    // MARK: - Lists: bullets, numbers, and task checkboxes
+
+    mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
+        listDepth += 1
+        descendInto(unorderedList)
+        listDepth -= 1
+    }
+
+    mutating func visitOrderedList(_ orderedList: OrderedList) {
+        listDepth += 1
+        descendInto(orderedList)
+        listDepth -= 1
+    }
 
     mutating func visitListItem(_ listItem: ListItem) {
-        if let checkbox = listItem.checkbox,
-           let sourceRange = listItem.range,
-           let itemNS = converter.nsRange(for: sourceRange),
-           itemNS.location + itemNS.length <= textLength,
-           let bracketRange = checkboxBracketRange(in: itemNS) {
-            let checked = checkbox == .checked
-            checkboxes.append((range: bracketRange, checked: checked))
-            elements.append(StyledElement(
-                fullRange: bracketRange,
-                contentRange: bracketRange,
-                delimiterRanges: [],
-                attributes: checked
-                    ? MarkdownTheme.shared.checkboxCheckedAttributes
-                    : MarkdownTheme.shared.checkboxUncheckedAttributes
+        defer { descendInto(listItem) }
+
+        guard let sourceRange = listItem.range,
+              let itemNS = converter.nsRange(for: sourceRange),
+              itemNS.location + itemNS.length <= textLength
+        else { return }
+
+        let isOrdered = listItem.parent is OrderedList
+        let markerRange = listMarkerRange(in: itemNS, ordered: isOrdered)
+
+        if let checkbox = listItem.checkbox {
+            // The checkbox glyph replaces the bullet/number entirely, so hide it
+            // the same way heading/link delimiters are hidden elsewhere.
+            if let markerRange {
+                elements.append(StyledElement(
+                    fullRange: markerRange, contentRange: markerRange,
+                    delimiterRanges: [markerRange], attributes: [:]
+                ))
+            }
+            if let bracketRange = checkboxBracketRange(in: itemNS) {
+                let checked = checkbox == .checked
+                checkboxes.append((range: bracketRange, checked: checked))
+                elements.append(StyledElement(
+                    fullRange: bracketRange,
+                    contentRange: bracketRange,
+                    delimiterRanges: [],
+                    attributes: checked
+                        ? MarkdownTheme.shared.checkboxCheckedAttributes
+                        : MarkdownTheme.shared.checkboxUncheckedAttributes
+                ))
+            }
+            return
+        }
+
+        guard let markerRange else { return }
+        elements.append(StyledElement(
+            fullRange: markerRange, contentRange: markerRange,
+            delimiterRanges: [], attributes: MarkdownTheme.shared.listMarkerAttributes
+        ))
+        if !isOrdered {
+            listMarkerGlyphOverrides.append((
+                location: markerRange.location,
+                character: Self.bulletCharacter(forDepth: max(1, listDepth))
             ))
         }
-        descendInto(listItem)
+    }
+
+    /// Locates the bullet ("-"/"*"/"+") or ordered-number ("1." / "2)") marker
+    /// at the start of a list item's source range.
+    private func listMarkerRange(in itemRange: NSRange, ordered: Bool) -> NSRange? {
+        let text = converter.fullString as NSString
+        let searchLength = min(24, itemRange.length)
+        guard searchLength > 0, itemRange.location + searchLength <= text.length else { return nil }
+        let snippet = text.substring(with: NSRange(location: itemRange.location, length: searchLength))
+
+        if ordered {
+            var digitCount = 0
+            for ch in snippet {
+                if ch.isNumber { digitCount += 1 } else { break }
+            }
+            guard digitCount > 0 else { return nil }
+            let delimIndex = snippet.index(snippet.startIndex, offsetBy: digitCount)
+            guard delimIndex < snippet.endIndex, snippet[delimIndex] == "." || snippet[delimIndex] == ")" else { return nil }
+            return NSRange(location: itemRange.location, length: digitCount + 1)
+        } else {
+            guard let first = snippet.first, first == "-" || first == "*" || first == "+" else { return nil }
+            return NSRange(location: itemRange.location, length: 1)
+        }
+    }
+
+    /// Cycles unordered-bullet shape by nesting depth: filled circle, hollow
+    /// circle, filled diamond, hollow diamond.
+    private static func bulletCharacter(forDepth depth: Int) -> Character {
+        switch depth {
+        case 1: return "●"
+        case 2: return "○"
+        case 3: return "◆"
+        default: return "◇"
+        }
     }
 
     /// Locates the "[ ]"/"[x]"/"[X]" bracket within a list item's source range.
