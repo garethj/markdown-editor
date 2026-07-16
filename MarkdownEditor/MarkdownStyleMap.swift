@@ -79,6 +79,8 @@ final class MarkdownStyleMap {
     /// Character index → replacement glyph character, for reshaping unordered
     /// bullet markers ("-"/"*") into filled/hollow circles and diamonds by depth.
     private(set) var listMarkerGlyphOverrides: [(location: Int, character: Character)]
+    /// Blockquote source ranges, for drawing the accent bar alongside them.
+    private(set) var blockQuoteRegions: [NSRange]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -88,6 +90,7 @@ final class MarkdownStyleMap {
             self.checkboxes = []
             self.headings = []
             self.listMarkerGlyphOverrides = []
+            self.blockQuoteRegions = []
             return
         }
         let doc = Document(parsing: text)
@@ -101,6 +104,7 @@ final class MarkdownStyleMap {
         self.checkboxes = walker.checkboxes
         self.headings = walker.headings
         self.listMarkerGlyphOverrides = walker.listMarkerGlyphOverrides
+        self.blockQuoteRegions = walker.blockQuoteRegions
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -122,6 +126,7 @@ private struct StyleWalker: MarkupWalker {
     var headings: [(range: NSRange, level: Int, title: String)] = []
     var listMarkerGlyphOverrides: [(location: Int, character: Character)] = []
     var listDepth = 0
+    var blockQuoteRegions: [NSRange] = []
 
     // MARK: - Headings
 
@@ -415,14 +420,48 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        // Style the whole block; the ">" characters on each line are delimiters
+        // Style the whole block; the ">" marker on each line is hidden in
+        // favor of the accent bar the layout manager draws alongside it.
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: nsRange,
-            delimiterRanges: [],
+            delimiterRanges: blockQuoteMarkerRanges(in: nsRange),
             attributes: MarkdownTheme.shared.blockQuoteAttributes
         ))
+        blockQuoteRegions.append(nsRange)
         descendInto(blockQuote)
+    }
+
+    /// Finds the "> " (or ">") prefix at the start of each line within a
+    /// blockquote's source range, so it can be hidden.
+    private func blockQuoteMarkerRanges(in blockRange: NSRange) -> [NSRange] {
+        let text = converter.fullString as NSString
+        let gt = UInt16(UnicodeScalar(">").value)
+        let space = UInt16(UnicodeScalar(" ").value)
+        var ranges: [NSRange] = []
+        var lineStart = blockRange.location
+        let blockEnd = NSMaxRange(blockRange)
+
+        while lineStart < blockEnd {
+            let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
+            let lineEnd = min(NSMaxRange(lineRange), blockEnd)
+
+            var cursor = lineRange.location
+            while cursor < lineEnd, text.character(at: cursor) == space {
+                cursor += 1
+            }
+            if cursor < lineEnd, text.character(at: cursor) == gt {
+                var markerEnd = cursor + 1
+                if markerEnd < lineEnd, text.character(at: markerEnd) == space {
+                    markerEnd += 1
+                }
+                ranges.append(NSRange(location: cursor, length: markerEnd - cursor))
+            }
+
+            guard NSMaxRange(lineRange) > lineStart else { break }
+            lineStart = NSMaxRange(lineRange)
+        }
+        return ranges
     }
 
     // MARK: - Tables

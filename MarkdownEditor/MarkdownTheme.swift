@@ -113,9 +113,8 @@ final class MarkdownTheme {
         backgroundColor = isDark
             ? NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.17, alpha: 1)
             : NSColor(calibratedRed: 0.995, green: 0.99, blue: 0.965, alpha: 1)
-        cursorColor = isDark
-            ? .white
-            : NSColor(calibratedRed: 0.2, green: 0.2, blue: 0.25, alpha: 1)
+        // Matches the accent used for links/bullets/quote bar.
+        cursorColor = linkColor
         findMatchColor = isDark
             ? NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.15, alpha: 0.45)
             : NSColor(calibratedRed: 1.0, green: 0.95, blue: 0.0, alpha: 0.4)
@@ -153,7 +152,16 @@ final class MarkdownTheme {
             .foregroundColor: linkColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
-        blockQuoteAttributes = [.foregroundColor: blockQuoteColor, .font: italicFont]
+        let blockQuotePara = NSMutableParagraphStyle()
+        blockQuotePara.headIndent = 20
+        blockQuotePara.firstLineHeadIndent = 20
+        blockQuotePara.lineSpacing = 3
+        blockQuotePara.paragraphSpacing = 4
+        blockQuoteAttributes = [
+            .foregroundColor: blockQuoteColor,
+            .font: italicFont,
+            .paragraphStyle: blockQuotePara,
+        ]
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]

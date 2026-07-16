@@ -370,7 +370,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // Build TextKit 1 stack
         let textStorage = MarkdownTextStorage()
-        let layoutManager = NSLayoutManager()
+        let layoutManager = MarkdownLayoutManager()
         let containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         let textContainer = MarkdownTextContainer(containerSize: containerSize)
 
