@@ -140,12 +140,24 @@ private struct StyleWalker: MarkupWalker {
         }
 
         let level = heading.level
-        let delimiterLength = level + 1 // "## " = level + space
-        let delimLen = min(delimiterLength, nsRange.length)
+        let text = converter.fullString as NSString
+        let isATX = text.character(at: nsRange.location) == Self.hashUTF16
 
-        let delimiterRange = NSRange(location: nsRange.location, length: delimLen)
-        let contentRange = NSRange(location: nsRange.location + delimLen,
-                                   length: max(0, nsRange.length - delimLen))
+        let delimiterRange: NSRange
+        let contentRange: NSRange
+        if isATX {
+            let delimiterLength = min(level + 1, nsRange.length) // "## " = level + space
+            delimiterRange = NSRange(location: nsRange.location, length: delimiterLength)
+            contentRange = NSRange(location: nsRange.location + delimiterLength,
+                                   length: max(0, nsRange.length - delimiterLength))
+        } else {
+            // Setext heading: nsRange spans both the text line and its "===" /
+            // "---" underline. Keep the text line visible; hide the underline.
+            let textLineRange = text.lineRange(for: NSRange(location: nsRange.location, length: 0))
+            let contentEnd = min(NSMaxRange(textLineRange), NSMaxRange(nsRange))
+            contentRange = NSRange(location: nsRange.location, length: contentEnd - nsRange.location)
+            delimiterRange = NSRange(location: contentEnd, length: NSMaxRange(nsRange) - contentEnd)
+        }
 
         elements.append(StyledElement(
             fullRange: nsRange,
@@ -160,6 +172,8 @@ private struct StyleWalker: MarkupWalker {
         ))
         descendInto(heading)
     }
+
+    private static let hashUTF16 = UInt16(UnicodeScalar("#").value)
 
     // MARK: - Bold
 
@@ -636,16 +650,30 @@ private struct StyleWalker: MarkupWalker {
     mutating func visitStrikethrough(_ strikethrough: Strikethrough) {
         guard let sourceRange = strikethrough.range,
               let nsRange = converter.nsRange(for: sourceRange),
-              nsRange.length >= 4,
+              nsRange.length >= 2,
               nsRange.location + nsRange.length <= textLength
         else {
             descendInto(strikethrough)
             return
         }
 
-        let openDelim = NSRange(location: nsRange.location, length: 2)
-        let closeDelim = NSRange(location: NSMaxRange(nsRange) - 2, length: 2)
-        let contentRange = NSRange(location: nsRange.location + 2, length: nsRange.length - 4)
+        // GFM accepts both "~text~" and "~~text~~" — count the actual leading
+        // tildes rather than assuming 2, or single-tilde text loses its first
+        // and last real character to a delimiter range sized for "~~".
+        let text = converter.fullString as NSString
+        var delimLen = 0
+        while delimLen < nsRange.length / 2,
+              text.character(at: nsRange.location + delimLen) == Self.tildeUTF16 {
+            delimLen += 1
+        }
+        guard delimLen > 0 else {
+            descendInto(strikethrough)
+            return
+        }
+
+        let openDelim = NSRange(location: nsRange.location, length: delimLen)
+        let closeDelim = NSRange(location: NSMaxRange(nsRange) - delimLen, length: delimLen)
+        let contentRange = NSRange(location: nsRange.location + delimLen, length: nsRange.length - delimLen * 2)
 
         elements.append(StyledElement(
             fullRange: nsRange,
@@ -655,5 +683,7 @@ private struct StyleWalker: MarkupWalker {
         ))
         descendInto(strikethrough)
     }
+
+    private static let tildeUTF16 = UInt16(UnicodeScalar("~").value)
 }
 

@@ -57,13 +57,23 @@ final class MarkdownTextStorage: NSTextStorage {
             return
         }
 
-        // Determine the dirty region: expand editedRange to enclosing paragraph boundaries
+        // Determine the dirty region: expand editedRange to enclosing paragraph boundaries,
+        // then one line further in each direction. Multi-line constructs like Setext
+        // headings ("Text\n---") depend on a line other than the one actually edited —
+        // e.g. deleting the "---" underline must also reset the heading font on the text
+        // line above it, which a same-line-only dirty range would leave stale.
         let nsText = text as NSString
         let dirtyRange: NSRange
         if let edited = pendingEditedRange, edited.location != NSNotFound {
-            let parStart = nsText.lineRange(for: NSRange(location: edited.location, length: 0)).location
+            var parStart = nsText.lineRange(for: NSRange(location: edited.location, length: 0)).location
             let editEnd = min(NSMaxRange(edited), nsText.length)
-            let parEnd = NSMaxRange(nsText.lineRange(for: NSRange(location: max(0, editEnd > 0 ? editEnd - 1 : 0), length: 0)))
+            var parEnd = NSMaxRange(nsText.lineRange(for: NSRange(location: max(0, editEnd > 0 ? editEnd - 1 : 0), length: 0)))
+            if parStart > 0 {
+                parStart = nsText.lineRange(for: NSRange(location: parStart - 1, length: 0)).location
+            }
+            if parEnd < nsText.length {
+                parEnd = NSMaxRange(nsText.lineRange(for: NSRange(location: parEnd, length: 0)))
+            }
             dirtyRange = NSRange(location: parStart, length: parEnd - parStart)
         } else {
             dirtyRange = fullRange
