@@ -74,6 +74,8 @@ final class MarkdownStyleMap {
     private(set) var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)]
     /// Task-list checkbox bracket ranges (e.g. the 3 characters "[ ]" or "[x]"), for click-to-toggle.
     private(set) var checkboxes: [(range: NSRange, checked: Bool)]
+    /// Headings in document order, for the table of contents.
+    private(set) var headings: [(range: NSRange, level: Int, title: String)]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -81,6 +83,7 @@ final class MarkdownStyleMap {
             self.allDelimiterRanges = []
             self.tableRegions = []
             self.checkboxes = []
+            self.headings = []
             return
         }
         let doc = Document(parsing: text)
@@ -92,6 +95,7 @@ final class MarkdownStyleMap {
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
         self.tableRegions = walker.tableRegions
         self.checkboxes = walker.checkboxes
+        self.headings = walker.headings
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -110,6 +114,7 @@ private struct StyleWalker: MarkupWalker {
     var elements: [StyledElement] = []
     var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
     var checkboxes: [(range: NSRange, checked: Bool)] = []
+    var headings: [(range: NSRange, level: Int, title: String)] = []
 
     // MARK: - Headings
 
@@ -135,6 +140,11 @@ private struct StyleWalker: MarkupWalker {
             contentRange: contentRange,
             delimiterRanges: [delimiterRange],
             attributes: MarkdownTheme.shared.headingAttributes(level: level)
+        ))
+        headings.append((
+            range: nsRange,
+            level: level,
+            title: heading.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         descendInto(heading)
     }

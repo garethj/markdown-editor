@@ -8,12 +8,37 @@ struct EditorView: View {
     @ObservedObject var document: MarkdownDocument
     var fileURL: URL?
     @Environment(\.undoManager) var undoManager
+    @StateObject private var tocModel = TableOfContentsModel()
+    @State private var showTOC: Bool
+
+    init(document: MarkdownDocument, fileURL: URL?) {
+        self.document = document
+        self.fileURL = fileURL
+        _showTOC = State(initialValue: Self.headingCount(in: document.text) > 1)
+    }
 
     var body: some View {
         if document.didConfirmLargeFileLoad {
             VStack(spacing: 0) {
-                MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager)
+                HStack(spacing: 0) {
+                    MarkdownTextView(document: document, fileURL: fileURL, undoManager: undoManager, tocModel: tocModel)
+                    if showTOC {
+                        Divider()
+                        TableOfContentsView(model: tocModel)
+                            .frame(width: 220)
+                    }
+                }
                 StatusBarView(text: document.text, hasUnsavedChanges: document.text != document.lastConfirmedSavedText)
+            }
+            .toolbar {
+                ToolbarItem {
+                    Button {
+                        showTOC.toggle()
+                    } label: {
+                        Image(systemName: "list.bullet.indent")
+                    }
+                    .help(showTOC ? "Hide Table of Contents" : "Show Table of Contents")
+                }
             }
         } else {
             LargeFileWarningView(
@@ -22,6 +47,26 @@ struct EditorView: View {
                 onCancel: { NSApp.keyWindow?.performClose(nil) }
             )
         }
+    }
+
+    /// Crude but cheap heading count for the initial sidebar-visibility default,
+    /// computed once from the raw text before any AST parse has happened.
+    private static func headingCount(in text: String) -> Int {
+        var count = 0
+        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("#") else { continue }
+            var hashes = 0
+            for ch in line {
+                if ch == "#" { hashes += 1 } else { break }
+            }
+            guard hashes >= 1 && hashes <= 6 else { continue }
+            let rest = line.dropFirst(hashes)
+            if rest.isEmpty || rest.first == " " {
+                count += 1
+            }
+        }
+        return count
     }
 }
 
@@ -310,6 +355,7 @@ struct MarkdownTextView: NSViewRepresentable {
     @ObservedObject var document: MarkdownDocument
     var fileURL: URL?
     var undoManager: UndoManager?
+    var tocModel: TableOfContentsModel?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -400,6 +446,7 @@ struct MarkdownTextView: NSViewRepresentable {
                 with: document.text
             )
         }
+        context.coordinator.updateTOC()
 
         // Refine prose width once clip view is sized
         DispatchQueue.main.async { [weak coordinator = context.coordinator] in
@@ -467,6 +514,7 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             textView.selectedRanges = safeRanges
             context.coordinator.isUpdatingFromSwiftUI = false
+            context.coordinator.updateTOC()
         }
     }
 
@@ -508,6 +556,9 @@ struct MarkdownTextView: NSViewRepresentable {
             super.init()
             parent.document.onWillSave = { [weak self] savedText in
                 self?.scheduleSaveVerification(expecting: savedText)
+            }
+            parent.tocModel?.onSelect = { [weak self] range in
+                self?.scrollToHeading(range)
             }
         }
 
@@ -668,6 +719,7 @@ struct MarkdownTextView: NSViewRepresentable {
             // No full-document invalidation needed here — it's expensive (O(n) per
             // keystroke) and causes the scroll view to jump to the bottom.
             updateCursorReveal()
+            updateTOC()
 
             // Re-run find if the find bar is visible (debounced to avoid per-keystroke search)
             if isFindBarVisible {
@@ -683,6 +735,26 @@ struct MarkdownTextView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             updateCursorReveal()
+        }
+
+        // MARK: - Table of contents
+
+        func updateTOC() {
+            guard let tocModel = parent.tocModel else { return }
+            let headings = markdownTextStorage?.lastStyleMap?.headings ?? []
+            tocModel.items = headings.map {
+                TableOfContentsModel.Item(range: $0.range, level: $0.level, title: $0.title)
+            }
+        }
+
+        private func scrollToHeading(_ range: NSRange) {
+            guard let textView else { return }
+            let maxLen = (textView.string as NSString).length
+            guard range.location <= maxLen else { return }
+            let safeRange = NSRange(location: range.location, length: min(range.length, maxLen - range.location))
+            textView.scrollRangeToVisible(safeRange)
+            textView.setSelectedRange(NSRange(location: safeRange.location, length: 0))
+            textView.window?.makeFirstResponder(textView)
         }
 
         // MARK: - Cursor-aware reveal

@@ -20,6 +20,7 @@
 		4A000000000000000000000D /* MarkdownTextContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B000000000000000000000F /* MarkdownTextContainer.swift */; };
 		4A000000000000000000000E /* MarkdownHTMLRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */; };
 		4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000011 /* MarkdownPDFExporter.swift */; };
+		4A0000000000000000000010 /* TableOfContentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000012 /* TableOfContentsView.swift */; };
 		4A0000000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000009 /* Assets.xcassets */; };
 		4A000000000000000000000A /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 5B0000000000000000000002 /* Markdown */; };
 /* End PBXBuildFile section */
@@ -42,6 +43,7 @@
 		4B000000000000000000000F /* MarkdownTextContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextContainer.swift; sourceTree = "<group>"; };
 		4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRenderer.swift; sourceTree = "<group>"; };
 		4B0000000000000000000011 /* MarkdownPDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPDFExporter.swift; sourceTree = "<group>"; };
+		4B0000000000000000000012 /* TableOfContentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableOfContentsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -80,6 +82,7 @@
 				4B000000000000000000000F /* MarkdownTextContainer.swift */,
 				4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */,
 				4B0000000000000000000011 /* MarkdownPDFExporter.swift */,
+				4B0000000000000000000012 /* TableOfContentsView.swift */,
 				4B0000000000000000000009 /* Assets.xcassets */,
 				4B000000000000000000000A /* Info.plist */,
 				4B000000000000000000000B /* MarkdownEditor.entitlements */,
@@ -178,6 +181,7 @@
 				4A000000000000000000000D /* MarkdownTextContainer.swift in Sources */,
 				4A000000000000000000000E /* MarkdownHTMLRenderer.swift in Sources */,
 				4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */,
+				4A0000000000000000000010 /* TableOfContentsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
