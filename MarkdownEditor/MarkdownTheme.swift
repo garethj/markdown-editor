@@ -34,6 +34,19 @@ final class MarkdownTheme {
     private let baseSize: CGFloat = 15
     private let headingSizes: [CGFloat] = [28, 24, 20, 17, 15, 13]
 
+    /// Resolves the rounded-design variant of the system font, falling back to
+    /// nil (callers substitute the plain system font) if unavailable.
+    private static func roundedFont(
+        size: CGFloat, weight: NSFont.Weight, traits: NSFontDescriptor.SymbolicTraits = []
+    ) -> NSFont? {
+        var descriptor = NSFont.systemFont(ofSize: size, weight: weight).fontDescriptor
+        descriptor = descriptor.withDesign(.rounded) ?? descriptor
+        if !traits.isEmpty {
+            descriptor = descriptor.withSymbolicTraits(traits)
+        }
+        return NSFont(descriptor: descriptor, size: size)
+    }
+
     private init() {
         // Initialize with placeholder values; updateForCurrentAppearance fills real values
         defaultFont = .systemFont(ofSize: 15)
@@ -63,20 +76,17 @@ final class MarkdownTheme {
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 
         // Fonts
-        defaultFont = .systemFont(ofSize: baseSize)
-        boldFont = .boldSystemFont(ofSize: baseSize)
-        let italicDesc = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
-            .withSymbolicTraits(.italic)
-        italicFont = NSFont(descriptor: italicDesc, size: baseSize) ?? .systemFont(ofSize: baseSize)
-
-        let boldItalicDesc = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
-            .withSymbolicTraits([.bold, .italic])
-        boldItalicFont = NSFont(descriptor: boldItalicDesc, size: baseSize) ?? .boldSystemFont(ofSize: baseSize)
+        // A rounded system design reads as noticeably warmer/friendlier than
+        // plain SF Pro, at zero asset cost.
+        defaultFont = Self.roundedFont(size: baseSize, weight: .regular) ?? .systemFont(ofSize: baseSize)
+        boldFont = Self.roundedFont(size: baseSize, weight: .bold) ?? .boldSystemFont(ofSize: baseSize)
+        italicFont = Self.roundedFont(size: baseSize, weight: .regular, traits: .italic) ?? .systemFont(ofSize: baseSize)
+        boldItalicFont = Self.roundedFont(size: baseSize, weight: .bold, traits: [.bold, .italic]) ?? .boldSystemFont(ofSize: baseSize)
         codeFont = .monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
         codeBoldFont = .monospacedSystemFont(ofSize: baseSize - 1, weight: .bold)
 
         headingFonts = headingSizes.map { size in
-            .systemFont(ofSize: size, weight: .bold)
+            Self.roundedFont(size: size, weight: .bold) ?? .systemFont(ofSize: size, weight: .bold)
         }
 
         // Colors
@@ -90,7 +100,11 @@ final class MarkdownTheme {
         codeBackgroundColor = isDark
             ? NSColor(calibratedWhite: 1.0, alpha: 0.06)
             : NSColor(calibratedWhite: 0.0, alpha: 0.04)
-        linkColor = .linkColor
+        // A warm terracotta accent instead of system blue — this is what keeps
+        // links and underlines from looking like default AppKit.
+        linkColor = isDark
+            ? NSColor(calibratedRed: 0.92, green: 0.58, blue: 0.50, alpha: 1)
+            : NSColor(calibratedRed: 0.72, green: 0.36, blue: 0.30, alpha: 1)
         highlightColor = isDark
             ? NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.1, alpha: 0.4)
             : NSColor(calibratedRed: 1.0, green: 0.95, blue: 0.3, alpha: 0.5)
@@ -98,7 +112,7 @@ final class MarkdownTheme {
         delimiterColor = .tertiaryLabelColor
         backgroundColor = isDark
             ? NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.17, alpha: 1)
-            : NSColor(calibratedRed: 0.99, green: 0.99, blue: 0.98, alpha: 1)
+            : NSColor(calibratedRed: 0.995, green: 0.99, blue: 0.965, alpha: 1)
         cursorColor = isDark
             ? .white
             : NSColor(calibratedRed: 0.2, green: 0.2, blue: 0.25, alpha: 1)
