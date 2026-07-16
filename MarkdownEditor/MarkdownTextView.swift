@@ -143,12 +143,11 @@ struct StatusBarView: View {
     }
 
     private var statusText: String {
-        var parts = ["\(counter.wordCount.formatted()) words"]
+        var text = "\(counter.wordCount.formatted()) words / \(counter.characterCount.formatted()) characters"
         if counter.readingTimeMinutes > 0 {
-            parts.append("\(counter.readingTimeMinutes) min read")
+            text += " (\(counter.readingTimeMinutes) min read)"
         }
-        parts.append("\(counter.characterCount.formatted()) characters")
-        return parts.joined(separator: "  ")
+        return text
     }
 }
 
@@ -735,6 +734,78 @@ struct MarkdownTextView: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             updateCursorReveal()
+        }
+
+        // MARK: - List continuation on Return
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
+            return handleListContinuation(in: textView)
+        }
+
+        private static let orderedListLineRegex = try! NSRegularExpression(
+            pattern: #"^(\s*)(\d+)([.)])\s+(.*)$"#
+        )
+        private static let unorderedListLineRegex = try! NSRegularExpression(
+            pattern: #"^(\s*)([-*+])\s+(\[[ xX]\]\s+)?(.*)$"#
+        )
+
+        /// Continues a list when Return is pressed at the end of a list item
+        /// (same marker, or the next number for ordered lists), and exits the
+        /// list when Return is pressed on an already-empty item — matching
+        /// the convention most list-aware editors use.
+        private func handleListContinuation(in textView: NSTextView) -> Bool {
+            let selRange = textView.selectedRange()
+            guard selRange.length == 0 else { return false }
+
+            let nsText = textView.string as NSString
+            let lineRange = nsText.lineRange(for: NSRange(location: selRange.location, length: 0))
+            var lineContentEnd = NSMaxRange(lineRange)
+            if lineContentEnd > lineRange.location, nsText.character(at: lineContentEnd - 1) == 10 {
+                lineContentEnd -= 1
+            }
+            // Only take over Return at the end of the line's text — mid-line
+            // Return should just split the text as usual.
+            guard selRange.location == lineContentEnd else { return false }
+
+            let line = nsText.substring(with: NSRange(location: lineRange.location, length: lineContentEnd - lineRange.location))
+            let lineNS = line as NSString
+            let fullLineRange = NSRange(location: 0, length: lineNS.length)
+
+            if let match = Self.orderedListLineRegex.firstMatch(in: line, range: fullLineRange) {
+                let indent = lineNS.substring(with: match.range(at: 1))
+                guard let number = Int(lineNS.substring(with: match.range(at: 2))) else { return false }
+                let delim = lineNS.substring(with: match.range(at: 3))
+                let content = lineNS.substring(with: match.range(at: 4))
+
+                if content.trimmingCharacters(in: .whitespaces).isEmpty {
+                    removeMarker(textView: textView, lineStart: lineRange.location, lineContentEnd: lineContentEnd, indent: indent)
+                } else {
+                    textView.insertText("\n\(indent)\(number + 1)\(delim) ", replacementRange: selRange)
+                }
+                return true
+            }
+
+            if let match = Self.unorderedListLineRegex.firstMatch(in: line, range: fullLineRange) {
+                let indent = lineNS.substring(with: match.range(at: 1))
+                let bullet = lineNS.substring(with: match.range(at: 2))
+                let hasCheckbox = match.range(at: 3).location != NSNotFound
+                let content = lineNS.substring(with: match.range(at: 4))
+
+                if content.trimmingCharacters(in: .whitespaces).isEmpty {
+                    removeMarker(textView: textView, lineStart: lineRange.location, lineContentEnd: lineContentEnd, indent: indent)
+                } else {
+                    let newMarker = hasCheckbox ? "\(indent)\(bullet) [ ] " : "\(indent)\(bullet) "
+                    textView.insertText("\n\(newMarker)", replacementRange: selRange)
+                }
+                return true
+            }
+
+            return false
+        }
+
+        private func removeMarker(textView: NSTextView, lineStart: Int, lineContentEnd: Int, indent: String) {
+            textView.insertText(indent, replacementRange: NSRange(location: lineStart, length: lineContentEnd - lineStart))
         }
 
         // MARK: - Table of contents
