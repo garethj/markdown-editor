@@ -169,7 +169,14 @@ final class MarkdownTheme {
         // its natural width) but is invisible — MarkdownLayoutManager draws an
         // actual rounded checkbox glyph over that reserved space instead.
         checkboxTextAttributes = [.font: codeBoldFont, .foregroundColor: NSColor.clear]
-        listMarkerAttributes = [.foregroundColor: linkColor]
+        // The bullet glyph (●/○/◆/◇) renders large relative to body text at
+        // full point size, so it gets a smaller dedicated font; ordered-list
+        // numbers are real digits and stay legible at the normal text size.
+        listBulletAttributes = [
+            .foregroundColor: linkColor,
+            .font: NSFont.systemFont(ofSize: baseSize * 0.62),
+        ]
+        listNumberAttributes = [.foregroundColor: linkColor]
 
         // Pre-compute heading attribute dicts for all 6 levels
         cachedHeadingAttributes = headingSizes.enumerated().map { (idx, _) -> [NSAttributedString.Key: Any] in
@@ -200,7 +207,8 @@ final class MarkdownTheme {
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxTextAttributes: [NSAttributedString.Key: Any] = [:]
-    private(set) var listMarkerAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var listBulletAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var listNumberAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {

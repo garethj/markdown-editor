@@ -359,7 +359,10 @@ private struct StyleWalker: MarkupWalker {
         guard let markerRange else { return }
         elements.append(StyledElement(
             fullRange: markerRange, contentRange: markerRange,
-            delimiterRanges: [], attributes: MarkdownTheme.shared.listMarkerAttributes
+            delimiterRanges: [],
+            attributes: isOrdered
+                ? MarkdownTheme.shared.listNumberAttributes
+                : MarkdownTheme.shared.listBulletAttributes
         ))
         if !isOrdered {
             listMarkerGlyphOverrides.append((
