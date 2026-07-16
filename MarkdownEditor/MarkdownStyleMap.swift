@@ -331,15 +331,12 @@ private struct StyleWalker: MarkupWalker {
                 ))
             }
             if let bracketRange = checkboxBracketRange(in: itemNS) {
-                let checked = checkbox == .checked
-                checkboxes.append((range: bracketRange, checked: checked))
+                checkboxes.append((range: bracketRange, checked: checkbox == .checked))
                 elements.append(StyledElement(
                     fullRange: bracketRange,
                     contentRange: bracketRange,
                     delimiterRanges: [],
-                    attributes: checked
-                        ? MarkdownTheme.shared.checkboxCheckedAttributes
-                        : MarkdownTheme.shared.checkboxUncheckedAttributes
+                    attributes: MarkdownTheme.shared.checkboxTextAttributes
                 ))
             }
             return

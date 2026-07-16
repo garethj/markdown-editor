@@ -49,7 +49,10 @@ final class MarkdownTextStorage: NSTextStorage {
             lastStyleMap = nil
             for lm in layoutManagers {
                 (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: nil)
-                (lm as? MarkdownLayoutManager)?.blockQuoteRegions = []
+                if let markdownLM = lm as? MarkdownLayoutManager {
+                    markdownLM.blockQuoteRegions = []
+                    markdownLM.checkboxRegions = []
+                }
             }
             return
         }
@@ -93,7 +96,10 @@ final class MarkdownTextStorage: NSTextStorage {
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
         for lm in layoutManagers {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
-            (lm as? MarkdownLayoutManager)?.blockQuoteRegions = styleMap.blockQuoteRegions
+            if let markdownLM = lm as? MarkdownLayoutManager {
+                markdownLM.blockQuoteRegions = styleMap.blockQuoteRegions
+                markdownLM.checkboxRegions = styleMap.checkboxes
+            }
             if let container = lm.textContainers.first as? MarkdownTextContainer {
                 container.tableLineRanges = styleMap.tableRegions
             }

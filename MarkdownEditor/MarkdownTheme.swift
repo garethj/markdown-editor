@@ -165,8 +165,10 @@ final class MarkdownTheme {
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
-        checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: delimiterColor]
-        checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: checkboxCheckedColor]
+        // The literal "[ ]"/"[x]" stays in place for layout (reserving exactly
+        // its natural width) but is invisible — MarkdownLayoutManager draws an
+        // actual rounded checkbox glyph over that reserved space instead.
+        checkboxTextAttributes = [.font: codeBoldFont, .foregroundColor: NSColor.clear]
         listMarkerAttributes = [.foregroundColor: linkColor]
 
         // Pre-compute heading attribute dicts for all 6 levels
@@ -197,8 +199,7 @@ final class MarkdownTheme {
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
-    private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
-    private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkboxTextAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var listMarkerAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
 
