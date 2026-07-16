@@ -465,9 +465,15 @@ struct MarkdownTextView: NSViewRepresentable {
         var findBarAccessory: NSTitlebarAccessoryViewController?
         private var pendingFindWorkItem: DispatchWorkItem?
 
-        // Save verification (confirms writes actually reached disk)
-        private var pendingSaveText: String?
-        private var saveVerificationAttempt = 0
+        // Save verification (confirms writes actually reached disk).
+        // A set, not a single slot: overlapping saves (e.g. autosave firing,
+        // then a manual Cmd+S before the autosave's own disk-echo has round-tripped
+        // back through the file watcher) must each be independently confirmable —
+        // a single shared slot would let a newer save's expected text clobber an
+        // older save's, so the older save's echo would match neither
+        // `lastConfirmedSavedText` nor the (now-overwritten) expectation and get
+        // mistaken for a real external conflict.
+        private var pendingSaveTexts: Set<String> = []
 
         init(_ parent: MarkdownTextView) {
             self.parent = parent
@@ -1033,12 +1039,15 @@ struct MarkdownTextView: NSViewRepresentable {
             // Our own save (confirmed or still in flight) echoing back through the
             // watcher — atomic writes replace the inode, which looks identical to an
             // external edit at the FileWatcher level. Recognize it by content instead
-            // of timing so it never trips the conflict dialog.
-            if newText == doc.lastConfirmedSavedText || newText == pendingSaveText {
+            // of timing so it never trips the conflict dialog. Checked against the
+            // full set of outstanding expected texts, not just the latest one, so an
+            // older save's echo is still recognized even if a newer save has since
+            // started (see `pendingSaveTexts` above).
+            if newText == doc.lastConfirmedSavedText || pendingSaveTexts.contains(newText) {
                 if newText != doc.lastConfirmedSavedText {
                     doc.markSaveConfirmed(newText)
-                    pendingSaveText = nil
                 }
+                pendingSaveTexts.remove(newText)
                 return
             }
 
@@ -1108,54 +1117,76 @@ struct MarkdownTextView: NSViewRepresentable {
             // so that canUndo only reflects real user edits.
             parent.undoManager?.removeAllActions()
             textView?.undoManager?.removeAllActions()
+
+            // The merge above only updates our own app-level tracking
+            // (`lastConfirmedSavedText`). SwiftUI's DocumentGroup/ReferenceFileDocument
+            // machinery independently tracks the file's last-known-good revision via
+            // AppKit's underlying NSDocument.fileModificationDate, and never sees this
+            // out-of-band external read. Left alone, the NEXT real save — even one with
+            // no further conflict in substance — trips AppKit's own built-in "document
+            // changed by another application" alert (Save Anyway / Revert / Save As),
+            // which bypasses our custom conflict dialog entirely since it's generated
+            // deeper in the document architecture, and whose "Revert" option would
+            // silently discard whatever the user types next. SwiftUI doesn't expose the
+            // underlying NSDocument, but it still registers it with the shared
+            // NSDocumentController under the standard file URL, so fetch it from there
+            // and update its modification date to match what's now on disk.
+            if let url = watchedURL ?? parent.fileURL {
+                let nsDoc = NSDocumentController.shared.document(for: url)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let modDate = attrs?[.modificationDate] as? Date
+                if let nsDoc, let modDate {
+                    nsDoc.fileModificationDate = modDate
+                }
+            }
         }
 
         // MARK: - Save verification
 
         private func scheduleSaveVerification(expecting text: String) {
-            pendingSaveText = text
-            saveVerificationAttempt = 0
-            verifySaveAfterDelay(0.4)
+            pendingSaveTexts.insert(text)
+            verifySaveAfterDelay(0.4, expecting: text, attempt: 0)
         }
 
-        private func verifySaveAfterDelay(_ delay: TimeInterval) {
+        private func verifySaveAfterDelay(_ delay: TimeInterval, expecting text: String, attempt: Int) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.verifySave()
+                self?.verifySave(expecting: text, attempt: attempt)
             }
         }
 
-        private func verifySave() {
-            guard let url = watchedURL ?? parent.fileURL,
-                  let expected = pendingSaveText
-            else { return }
+        private func verifySave(expecting text: String, attempt: Int) {
+            // Already confirmed by another path (e.g. the file watcher's own-echo
+            // check beat this timer to it) — nothing left to do.
+            guard pendingSaveTexts.contains(text) else { return }
+            guard let url = watchedURL ?? parent.fileURL else { return }
 
             let doc = parent.document
             guard let diskText = try? String(contentsOf: url, encoding: .utf8) else {
-                retryOrFailSaveVerification()
+                retryOrFailSaveVerification(expecting: text, attempt: attempt)
                 return
             }
 
-            if diskText == expected {
-                doc.markSaveConfirmed(expected)
-                pendingSaveText = nil
+            if diskText == text {
+                doc.markSaveConfirmed(text)
+                pendingSaveTexts.remove(text)
             } else if diskText == doc.text {
                 // A newer save has already superseded this one — confirmed either way.
                 doc.markSaveConfirmed(diskText)
-                pendingSaveText = nil
+                pendingSaveTexts.remove(text)
             } else {
-                retryOrFailSaveVerification()
+                retryOrFailSaveVerification(expecting: text, attempt: attempt)
             }
         }
 
-        private func retryOrFailSaveVerification() {
-            saveVerificationAttempt += 1
-            if saveVerificationAttempt == 1 {
-                verifySaveAfterDelay(1.0)
-            } else if saveVerificationAttempt == 2 {
-                verifySaveAfterDelay(2.0)
+        private func retryOrFailSaveVerification(expecting text: String, attempt: Int) {
+            let nextAttempt = attempt + 1
+            if nextAttempt == 1 {
+                verifySaveAfterDelay(1.0, expecting: text, attempt: nextAttempt)
+            } else if nextAttempt == 2 {
+                verifySaveAfterDelay(2.0, expecting: text, attempt: nextAttempt)
             } else {
                 showSaveVerificationWarning()
-                pendingSaveText = nil
+                pendingSaveTexts.remove(text)
             }
         }
 
