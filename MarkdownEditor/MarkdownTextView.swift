@@ -1220,34 +1220,28 @@ struct MarkdownTextView: NSViewRepresentable {
 
             let doc = parent.document
 
-            // Our own save (confirmed or still in flight) echoing back through the
-            // watcher — atomic writes replace the inode, which looks identical to an
-            // external edit at the FileWatcher level. Recognize it by content instead
-            // of timing so it never trips the conflict dialog. Checked against the
-            // full set of outstanding expected texts, not just the latest one, so an
-            // older save's echo is still recognized even if a newer save has since
-            // started (see `pendingSaveTexts` above).
-            if newText == doc.lastConfirmedSavedText || pendingSaveTexts.contains(newText) {
-                if newText != doc.lastConfirmedSavedText {
+            // See ExternalChangeResolver for the classification rationale (own
+            // save echoing back through the watcher vs. a real external edit,
+            // and whether local edits since the last confirmed save mean this
+            // needs the conflict dialog rather than a silent merge).
+            let resolution = ExternalChangeResolver.resolve(
+                newText: newText,
+                currentText: doc.text,
+                lastConfirmedSavedText: doc.lastConfirmedSavedText,
+                pendingSaveTexts: pendingSaveTexts
+            )
+
+            switch resolution {
+            case .ignoreOwnEcho(let shouldMarkConfirmed):
+                if shouldMarkConfirmed {
                     doc.markSaveConfirmed(newText)
                 }
                 pendingSaveTexts.remove(newText)
-                return
-            }
-
-            // If the file on disk matches the current document, ignore —
-            // this happens when macOS auto-save writes the file (e.g. on focus loss).
-            guard newText != doc.text else { return }
-
-            // Content-based check: are there edits since the last confirmed save?
-            // (Not `undoManager.canUndo` — that stays true forever after the first
-            // keystroke of a session since dirty-tracking undo actions are never
-            // popped by an ordinary save.)
-            let hasLocalChanges = doc.text != doc.lastConfirmedSavedText
-
-            if hasLocalChanges {
+            case .ignoreMatchesCurrent:
+                break
+            case .conflict:
                 presentConflictAlert(newText: newText, doc: doc)
-            } else {
+            case .silentMerge:
                 applyExternalText(newText, to: doc)
             }
         }

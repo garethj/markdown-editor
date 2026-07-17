@@ -21,8 +21,15 @@
 		4A000000000000000000000E /* MarkdownHTMLRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */; };
 		4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000011 /* MarkdownPDFExporter.swift */; };
 		4A0000000000000000000010 /* TableOfContentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000012 /* TableOfContentsView.swift */; };
+		4A0000000000000000000011 /* ExternalChangeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000013 /* ExternalChangeResolver.swift */; };
 		4A0000000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000009 /* Assets.xcassets */; };
 		4A000000000000000000000A /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 5B0000000000000000000002 /* Markdown */; };
+		7A0000000000000000000001 /* MarkdownStyleMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000001 /* MarkdownStyleMapTests.swift */; };
+		7A0000000000000000000002 /* MarkdownTextStorageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000002 /* MarkdownTextStorageTests.swift */; };
+		7A0000000000000000000003 /* MarkdownHTMLRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000003 /* MarkdownHTMLRendererTests.swift */; };
+		7A0000000000000000000004 /* ListContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000004 /* ListContinuationTests.swift */; };
+		7A0000000000000000000005 /* MarkdownDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000005 /* MarkdownDocumentTests.swift */; };
+		7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000006 /* ExternalChangeResolverTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +51,14 @@
 		4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRenderer.swift; sourceTree = "<group>"; };
 		4B0000000000000000000011 /* MarkdownPDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPDFExporter.swift; sourceTree = "<group>"; };
 		4B0000000000000000000012 /* TableOfContentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableOfContentsView.swift; sourceTree = "<group>"; };
+		4B0000000000000000000013 /* ExternalChangeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeResolver.swift; sourceTree = "<group>"; };
+		7B0000000000000000000001 /* MarkdownStyleMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyleMapTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000002 /* MarkdownTextStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextStorageTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000003 /* MarkdownHTMLRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRendererTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000004 /* ListContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListContinuationTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000005 /* MarkdownDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000006 /* ExternalChangeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeResolverTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000007 /* MarkdownEditorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkdownEditorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,6 +70,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		7D0000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -62,6 +84,7 @@
 			isa = PBXGroup;
 			children = (
 				4C0000000000000000000002 /* MarkdownEditor */,
+				7C0000000000000000000001 /* MarkdownEditorTests */,
 				4C0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -83,6 +106,7 @@
 				4B0000000000000000000010 /* MarkdownHTMLRenderer.swift */,
 				4B0000000000000000000011 /* MarkdownPDFExporter.swift */,
 				4B0000000000000000000012 /* TableOfContentsView.swift */,
+				4B0000000000000000000013 /* ExternalChangeResolver.swift */,
 				4B0000000000000000000009 /* Assets.xcassets */,
 				4B000000000000000000000A /* Info.plist */,
 				4B000000000000000000000B /* MarkdownEditor.entitlements */,
@@ -90,10 +114,24 @@
 			path = MarkdownEditor;
 			sourceTree = "<group>";
 		};
+		7C0000000000000000000001 /* MarkdownEditorTests */ = {
+			isa = PBXGroup;
+			children = (
+				7B0000000000000000000001 /* MarkdownStyleMapTests.swift */,
+				7B0000000000000000000002 /* MarkdownTextStorageTests.swift */,
+				7B0000000000000000000003 /* MarkdownHTMLRendererTests.swift */,
+				7B0000000000000000000004 /* ListContinuationTests.swift */,
+				7B0000000000000000000005 /* MarkdownDocumentTests.swift */,
+				7B0000000000000000000006 /* ExternalChangeResolverTests.swift */,
+			);
+			path = MarkdownEditorTests;
+			sourceTree = "<group>";
+		};
 		4C0000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				4B000000000000000000000C /* MarkdownEditor.app */,
+				7B0000000000000000000007 /* MarkdownEditorTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -120,6 +158,23 @@
 			productName = MarkdownEditor;
 			productReference = 4B000000000000000000000C /* MarkdownEditor.app */;
 			productType = "com.apple.product-type.application";
+		};
+		7E0000000000000000000001 /* MarkdownEditorTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7F0000000000000000000001 /* Build configuration list for PBXNativeTarget "MarkdownEditorTests" */;
+			buildPhases = (
+				7D0000000000000000000001 /* Sources */,
+				7D0000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7G0000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = MarkdownEditorTests;
+			productName = MarkdownEditorTests;
+			productReference = 7B0000000000000000000007 /* MarkdownEditorTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -148,9 +203,28 @@
 			projectRoot = "";
 			targets = (
 				4E0000000000000000000001 /* MarkdownEditor */,
+				7E0000000000000000000001 /* MarkdownEditorTests */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXContainerItemProxy section */
+		7G0000000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5A0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4E0000000000000000000001;
+			remoteInfo = MarkdownEditor;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		7G0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4E0000000000000000000001 /* MarkdownEditor */;
+			targetProxy = 7G0000000000000000000002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		4D0000000000000000000003 /* Resources */ = {
@@ -182,6 +256,20 @@
 				4A000000000000000000000E /* MarkdownHTMLRenderer.swift in Sources */,
 				4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */,
 				4A0000000000000000000010 /* TableOfContentsView.swift in Sources */,
+				4A0000000000000000000011 /* ExternalChangeResolver.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		7D0000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A0000000000000000000001 /* MarkdownStyleMapTests.swift in Sources */,
+				7A0000000000000000000002 /* MarkdownTextStorageTests.swift in Sources */,
+				7A0000000000000000000003 /* MarkdownHTMLRendererTests.swift in Sources */,
+				7A0000000000000000000004 /* ListContinuationTests.swift in Sources */,
+				7A0000000000000000000005 /* MarkdownDocumentTests.swift in Sources */,
+				7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -333,6 +421,48 @@
 			};
 			name = Release;
 		};
+		7F0000000000000000000002 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.markdowneditor.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditor.app/Contents/MacOS/MarkdownEditor";
+			};
+			name = Debug;
+		};
+		7F0000000000000000000003 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.markdowneditor.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MarkdownEditor.app/Contents/MacOS/MarkdownEditor";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -350,6 +480,15 @@
 			buildConfigurations = (
 				4F0000000000000000000005 /* Debug */,
 				4F0000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7F0000000000000000000001 /* Build configuration list for PBXNativeTarget "MarkdownEditorTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7F0000000000000000000002 /* Debug */,
+				7F0000000000000000000003 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

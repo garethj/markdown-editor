@@ -16,7 +16,30 @@ cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debu
 
 Requires macOS 14+ and Xcode. The `swift-markdown` (Apple) package is pulled automatically via SPM.
 
-There are no unit tests.
+## Testing
+
+There's an XCTest target, `MarkdownEditorTests`, hosted in the app (`TEST_HOST`/`@testable import MarkdownEditor`). It covers logic that's reachable without a live window/WindowServer session: `MarkdownStyleMap` parsing, `MarkdownTextStorage`'s incremental dirty-region styling, `MarkdownHTMLRenderer`, Return-key list continuation, `MarkdownDocument` save-state, and `ExternalChangeResolver` (the file-watcher conflict decision logic — see below). Runs in well under a second.
+
+```bash
+xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destination 'platform=macOS' -only-testing:MarkdownEditorTests
+```
+
+**Run this before every commit.** A failure means stop and investigate — don't commit past it, and don't skip the run because a change "looks safe." If a test fails and the fix isn't obvious, say so rather than silently loosening the assertion to make it pass.
+
+**When fixing a bug or adding a feature, add or extend a test covering it**, if the logic is reachable without a live window (most parsing/styling/state logic is — check whether the equivalent existing test file already covers the area, e.g. a new inline-markdown construct belongs in `MarkdownStyleMapTests`, a new save/conflict edge case in `ExternalChangeResolverTests`). If the logic you just touched lives inline in `MarkdownTextView.Coordinator` and isn't reachable that way (private, or entangled with `NSTextView`/`NSDocument`/alerts), consider pulling the actual decision logic out into its own small internal type first — the way `ExternalChangeResolver.swift` was split out of `handleExternalModification` — rather than leaving it untestable. Don't force a test for logic that's genuinely only expressible as "does this render/scroll/look correct" — that class of bug isn't this suite's job (see below).
+
+**What this suite structurally cannot catch** — these need a real window/WindowServer session, human visual judgment, or real async timing, none of which a headless XCTest run provides:
+- Actual glyph generation / rendering: `shouldGenerateGlyphs` delimiter-hiding, cursor reveal, blockquote/table visual layout. The past bugs in this area ("blockquote bar rendering one line too high," "scroll-to-bottom on every keystroke," "text wrapping not adjusting on window resize") only manifested through a real `NSLayoutManager` laying out into a real, sized container — a `MarkdownTextStorage` built in isolation never generates glyphs.
+- Real async/filesystem timing: `FileWatcher`'s actual `DispatchSource` events, the 300ms delete/rename reattach delay, the save-verification retry chain's real timing, genuinely concurrent overlapping saves. `ExternalChangeResolverTests` covers the classification *logic* with contrived inputs, not real interleaving under disk I/O.
+- The deeper AppKit-level document conflict path (`NSDocumentController`, `fileModificationDate`, AppKit's own built-in "changed by another application" alert) — `applyExternalText`'s workaround for it isn't exercised at all.
+- `NSAlert` sheet modal behavior (window-modal, blocks keystrokes) — needs a real window.
+- PDF export (`MarkdownPDFExporter`'s WKWebView → `NSPrintOperation` pipeline) — zero coverage; this is a whole untested subsystem.
+- Visual/theme correctness — colors, fonts, checkbox glyph shapes, dark-mode appearance. A test can assert an attribute was *set*; it can't assert something *looks right*.
+- Performance/memory regressions (see `PERFORMANCE.md`) and large-file-threshold UI behavior.
+- Bugs that only emerge after a long chained sequence of real incremental edits (each test applies one edit in isolation) or from features interacting live (TOC sync during an external-merge, find-bar state during reload, undo/redo across programmatic vs. user edits).
+- Real mouse-click-to-character-index mapping (`Cmd`+click URLs, checkbox click hit-testing) — tests call the handler functions directly with a given character index, not through actual hit-testing.
+
+For that class of bug, the fallback is manually driving the built app or asking the user to check visually — not a test.
 
 **Debug builds split code into a dylib.** `Contents/MacOS/MarkdownEditor` in a Debug build is a thin stub; the actual compiled code lives in `Contents/MacOS/MarkdownEditor.debug.dylib` (Xcode's debug-dylib optimization). `strings`/`grep` on the main executable to confirm a change landed will find nothing — check the `.debug.dylib` instead.
 

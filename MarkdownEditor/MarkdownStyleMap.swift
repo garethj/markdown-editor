@@ -140,6 +140,7 @@ private struct StyleWalker: MarkupWalker {
 
         let delimiterRange: NSRange
         let contentRange: NSRange
+        var elementRange = nsRange
         if isATX {
             let delimiterLength = min(level + 1, nsRange.length) // "## " = level + space
             delimiterRange = NSRange(location: nsRange.location, length: delimiterLength)
@@ -148,20 +149,29 @@ private struct StyleWalker: MarkupWalker {
         } else {
             // Setext heading: nsRange spans both the text line and its "===" /
             // "---" underline. Keep the text line visible; hide the underline.
+            // When no blank line separates the heading from whatever follows,
+            // swift-markdown's reported nsRange can extend past the underline
+            // into that next block — clamp everything to the underline's own
+            // line rather than trusting nsRange's upper bound, otherwise the
+            // next paragraph gets swallowed into the heading's styling and
+            // partially hidden as a "delimiter".
             let textLineRange = text.lineRange(for: NSRange(location: nsRange.location, length: 0))
             let contentEnd = min(NSMaxRange(textLineRange), NSMaxRange(nsRange))
             contentRange = NSRange(location: nsRange.location, length: contentEnd - nsRange.location)
-            delimiterRange = NSRange(location: contentEnd, length: NSMaxRange(nsRange) - contentEnd)
+            let underlineLineRange = text.lineRange(for: NSRange(location: contentEnd, length: 0))
+            let delimiterEnd = min(NSMaxRange(underlineLineRange), NSMaxRange(nsRange))
+            delimiterRange = NSRange(location: contentEnd, length: max(0, delimiterEnd - contentEnd))
+            elementRange = NSRange(location: nsRange.location, length: delimiterEnd - nsRange.location)
         }
 
         elements.append(StyledElement(
-            fullRange: nsRange,
+            fullRange: elementRange,
             contentRange: contentRange,
             delimiterRanges: [delimiterRange],
             attributes: MarkdownTheme.shared.headingAttributes(level: level)
         ))
         headings.append((
-            range: nsRange,
+            range: elementRange,
             level: level,
             title: heading.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         ))
