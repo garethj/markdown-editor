@@ -63,7 +63,7 @@ A window-resize-reflow test (dragging the window border and checking the text vi
 - Pixel-perfect visual/theme correctness — colors, fonts, checkbox glyph shape, dark-mode appearance. `LayoutUITests`' scroll-stability check does coarse region-based screenshot comparison (detects "did the content silently move," not "does it look right"). Needs human visual judgment, not a pass/fail gate.
 - Cmd+click opening a URL in the real default browser — intentionally not automated, since it would actually open a browser tab during a test run.
 - AppKit document-conflict interactions beyond the specific paths `ExternalChangeUITests` drives (e.g. what the *other*, AppKit-native "changed by another application" alert does after a "Keep Mine" resolution).
-- Performance/memory regressions (see `PERFORMANCE.md`).
+- Performance/memory regressions.
 - Bugs that only emerge from a long chained sequence of real edits or several features interacting live (TOC sync during an external merge, find-bar state during reload).
 
 For that remaining class, the fallback is manually driving the built app or asking the user to check visually — not a test.
