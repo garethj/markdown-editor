@@ -27,7 +27,6 @@ final class MarkdownTheme {
     private(set) var cursorColor: NSColor
     private(set) var findMatchColor: NSColor
     private(set) var findCurrentMatchColor: NSColor
-    private(set) var checkboxCheckedColor: NSColor
 
     // MARK: - Sizes
 
@@ -68,7 +67,6 @@ final class MarkdownTheme {
         cursorColor = .textColor
         findMatchColor = .yellow
         findCurrentMatchColor = .orange
-        checkboxCheckedColor = .systemGreen
         updateForCurrentAppearance()
     }
 
@@ -129,9 +127,6 @@ final class MarkdownTheme {
         findCurrentMatchColor = isDark
             ? NSColor(calibratedRed: 0.9, green: 0.5, blue: 0.1, alpha: 0.7)
             : NSColor(calibratedRed: 1.0, green: 0.6, blue: 0.0, alpha: 0.5)
-        checkboxCheckedColor = isDark
-            ? NSColor(calibratedRed: 0.35, green: 0.78, blue: 0.45, alpha: 1)
-            : NSColor(calibratedRed: 0.2, green: 0.6, blue: 0.3, alpha: 1)
 
         rebuildCachedAttributes()
     }
@@ -173,8 +168,13 @@ final class MarkdownTheme {
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
-        checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: delimiterColor]
-        checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: checkboxCheckedColor]
+        // Unchecked boxes use the same accent as bullets/links so an open task
+        // reads as a live list item; checked boxes (and their task text, set
+        // below) dim to secondary-label grey — still legible, but visually
+        // deprioritized now that the task is done.
+        checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: linkColor]
+        checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: NSColor.secondaryLabelColor]
+        checkedTaskTextAttributes = [.foregroundColor: NSColor.secondaryLabelColor]
         // The bullet glyph (●/○/◆/◇) renders large relative to body text at
         // full point size, so it gets a smaller dedicated font; ordered-list
         // numbers are real digits and stay legible at the normal text size.
@@ -215,6 +215,7 @@ final class MarkdownTheme {
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkedTaskTextAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var listBulletAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var listNumberAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []

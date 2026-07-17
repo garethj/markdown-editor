@@ -411,6 +411,24 @@ private struct StyleWalker: MarkupWalker {
                         ? MarkdownTheme.shared.checkboxCheckedAttributes
                         : MarkdownTheme.shared.checkboxUncheckedAttributes
                 ))
+                // Grey out the task's own text when checked, so a completed
+                // task visibly recedes. Only the foreground color is set here
+                // (no font), and it's appended before descending into the
+                // item's inline content below, so nested styling (bold,
+                // links, inline code) still applies its own attributes on
+                // top rather than being overridden by this dimming.
+                if checked {
+                    let textStart = NSMaxRange(bracketRange)
+                    let textRange = NSRange(location: textStart, length: NSMaxRange(itemNS) - textStart)
+                    if textRange.length > 0 {
+                        elements.append(StyledElement(
+                            fullRange: textRange,
+                            contentRange: textRange,
+                            delimiterRanges: [],
+                            attributes: MarkdownTheme.shared.checkedTaskTextAttributes
+                        ))
+                    }
+                }
             }
             return
         }

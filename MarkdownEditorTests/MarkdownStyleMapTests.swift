@@ -281,6 +281,42 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(text(map.checkboxes[1].range, in: source), "[x]")
     }
 
+    /// A checked task's own text should be dimmed (greyed out but still
+    /// readable) so a completed task visibly recedes; an unchecked task's
+    /// text should be left at the normal default color.
+    func testCheckedTaskTextIsDimmedButUncheckedTaskTextIsNormal() {
+        let source = "- [ ] todo\n- [x] done\n"
+        let map = MarkdownStyleMap(text: source)
+        let dimmedColor = MarkdownTheme.shared.checkedTaskTextAttributes[.foregroundColor] as? NSColor
+        XCTAssertNotNil(dimmedColor)
+
+        let uncheckedTextIsDimmed = map.elements.contains {
+            text($0.fullRange, in: source).contains("todo")
+                && ($0.attributes[.foregroundColor] as? NSColor) == dimmedColor
+        }
+        XCTAssertFalse(uncheckedTextIsDimmed, "unchecked task's text must not be dimmed")
+
+        let checkedTextIsDimmed = map.elements.contains {
+            text($0.fullRange, in: source).contains("done")
+                && ($0.attributes[.foregroundColor] as? NSColor) == dimmedColor
+        }
+        XCTAssertTrue(checkedTextIsDimmed, "checked task's text must be dimmed")
+    }
+
+    /// Unchecked boxes use the same accent color as bullets/links; checked
+    /// boxes use the dimmed color rather than the old green checkmark color.
+    func testCheckboxBracketColorsMatchTheme() {
+        let source = "- [ ] todo\n- [x] done\n"
+        let map = MarkdownStyleMap(text: source)
+        let bracketElements = map.elements.filter { $0.fullRange.length == 3 && text($0.fullRange, in: source).hasPrefix("[") }
+        XCTAssertEqual(bracketElements.count, 2)
+
+        let uncheckedColor = bracketElements[0].attributes[.foregroundColor] as? NSColor
+        let checkedColor = bracketElements[1].attributes[.foregroundColor] as? NSColor
+        XCTAssertEqual(uncheckedColor, MarkdownTheme.shared.linkColor)
+        XCTAssertEqual(checkedColor, MarkdownTheme.shared.checkedTaskTextAttributes[.foregroundColor] as? NSColor)
+    }
+
     // MARK: - List bullet depth glyphs
 
     func testUnorderedBulletGlyphCyclesByDepth() {
