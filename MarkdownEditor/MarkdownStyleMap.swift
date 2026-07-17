@@ -437,25 +437,45 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        // Style the whole block; the ">" marker on each line is hidden in
-        // favor of the accent bar the layout manager draws alongside it.
+        let (markerRanges, lineContentRanges) = blockQuoteLineRanges(in: nsRange)
+        // Style the whole block. The ">" marker on each line is made
+        // invisible via color, not null-glyph hiding — hiding it that way
+        // was found to corrupt line-fragment generation when the blockquote
+        // immediately follows a blank line (down-arrow would skip right over
+        // the blank line, landing on the quote instead). Keeping the marker
+        // as a normal, present-but-transparent glyph avoids that; its
+        // reserved width becomes the gap the accent bar sits in.
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: nsRange,
-            delimiterRanges: blockQuoteMarkerRanges(in: nsRange),
+            delimiterRanges: [],
             attributes: MarkdownTheme.shared.blockQuoteAttributes
         ))
-        blockQuoteRegions.append(nsRange)
+        for markerRange in markerRanges {
+            elements.append(StyledElement(
+                fullRange: markerRange,
+                contentRange: markerRange,
+                delimiterRanges: [],
+                attributes: MarkdownTheme.shared.blockQuoteMarkerAttributes
+            ))
+        }
+        blockQuoteRegions.append(contentsOf: lineContentRanges)
         descendInto(blockQuote)
     }
 
-    /// Finds the "> " (or ">") prefix at the start of each line within a
-    /// blockquote's source range, so it can be hidden.
-    private func blockQuoteMarkerRanges(in blockRange: NSRange) -> [NSRange] {
+    /// For each line within a blockquote's source range, finds the "> " (or
+    /// ">") prefix to hide, and the range of visible content after it.
+    /// The content range (not the marker, and not the whole multi-line
+    /// block) is what the accent bar's position is computed from — querying
+    /// layout for a range that *starts* at a hidden run of glyphs can make
+    /// NSLayoutManager attribute the resulting line fragment to the row
+    /// above instead of the marker's own row.
+    private func blockQuoteLineRanges(in blockRange: NSRange) -> (markers: [NSRange], content: [NSRange]) {
         let text = converter.fullString as NSString
         let gt = UInt16(UnicodeScalar(">").value)
         let space = UInt16(UnicodeScalar(" ").value)
-        var ranges: [NSRange] = []
+        var markers: [NSRange] = []
+        var content: [NSRange] = []
         var lineStart = blockRange.location
         let blockEnd = NSMaxRange(blockRange)
 
@@ -472,13 +492,19 @@ private struct StyleWalker: MarkupWalker {
                 if markerEnd < lineEnd, text.character(at: markerEnd) == space {
                     markerEnd += 1
                 }
-                ranges.append(NSRange(location: cursor, length: markerEnd - cursor))
+                markers.append(NSRange(location: cursor, length: markerEnd - cursor))
+
+                var contentEnd = lineEnd
+                if contentEnd > markerEnd, text.character(at: contentEnd - 1) == 10 {
+                    contentEnd -= 1
+                }
+                content.append(NSRange(location: markerEnd, length: max(0, contentEnd - markerEnd)))
             }
 
             guard NSMaxRange(lineRange) > lineStart else { break }
             lineStart = NSMaxRange(lineRange)
         }
-        return ranges
+        return (markers, content)
     }
 
     // MARK: - Tables

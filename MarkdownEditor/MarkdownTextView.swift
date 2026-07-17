@@ -200,29 +200,39 @@ final class EditorTextView: NSTextView {
     /// Runs before glyphs are drawn, as a distinct (non-reentrant) phase of
     /// the same draw cycle — the safe place to query layout for custom
     /// decoration, unlike inside an NSLayoutManager.drawGlyphs override.
+    ///
+    /// `blockQuoteRegions` holds one range per *line* of quoted content —
+    /// specifically the visible text after the hidden "> " marker, not the
+    /// marker itself and not the whole (possibly multi-line) block. Querying
+    /// layout for a range that starts at hidden (null-glyph) characters can
+    /// make NSLayoutManager attribute the resulting line fragment to the row
+    /// above instead of the marker's own row, which drew the accent bar one
+    /// line too high. Starting from the visible content avoids that.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         guard let layoutManager = layoutManager as? MarkdownLayoutManager,
               !layoutManager.blockQuoteRegions.isEmpty,
-              textContainer != nil
+              let container = textContainer
         else { return }
 
         let barColor = MarkdownTheme.shared.linkColor
         let barWidth: CGFloat = 3
         let barOffsetFromText: CGFloat = 12
         let origin = textContainerOrigin
+        let textLength = (string as NSString).length
 
-        for charRange in layoutManager.blockQuoteRegions {
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, _, _ in
-                var barRect = usedRect
-                barRect.origin.x += origin.x - barOffsetFromText
-                barRect.origin.y += origin.y
-                barRect.size.width = barWidth
-                guard barRect.intersects(rect) else { return }
-                barColor.setFill()
-                NSBezierPath(roundedRect: barRect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
-            }
+        for lineContentRange in layoutManager.blockQuoteRegions {
+            guard lineContentRange.length > 0,
+                  NSMaxRange(lineContentRange) <= textLength
+            else { continue }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineContentRange, actualCharacterRange: nil)
+            var barRect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
+            barRect.origin.x += origin.x - barOffsetFromText
+            barRect.origin.y += origin.y
+            barRect.size.width = barWidth
+            guard barRect.intersects(rect) else { continue }
+            barColor.setFill()
+            NSBezierPath(roundedRect: barRect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
         }
     }
 

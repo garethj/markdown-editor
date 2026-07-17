@@ -161,8 +161,6 @@ final class MarkdownTheme {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
         let blockQuotePara = NSMutableParagraphStyle()
-        blockQuotePara.headIndent = 20
-        blockQuotePara.firstLineHeadIndent = 20
         blockQuotePara.lineSpacing = 3
         blockQuotePara.paragraphSpacing = 4
         blockQuoteAttributes = [
@@ -170,6 +168,9 @@ final class MarkdownTheme {
             .font: italicFont,
             .paragraphStyle: blockQuotePara,
         ]
+        // Kept as a normal (non-null) glyph, just transparent — see the
+        // comment in MarkdownStyleMap.visitBlockQuote for why.
+        blockQuoteMarkerAttributes = [.foregroundColor: NSColor.clear]
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
@@ -209,6 +210,7 @@ final class MarkdownTheme {
     private(set) var codeBlockAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var linkAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var blockQuoteAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var blockQuoteMarkerAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]

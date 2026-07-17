@@ -10,5 +10,8 @@ import AppKit
 /// earlier phase of the same draw cycle (before glyphs are drawn), so the
 /// same queries are safe to make there instead.
 final class MarkdownLayoutManager: NSLayoutManager {
+    /// One range per line of quoted content — the visible text after the
+    /// hidden "> " marker, not the marker itself and not the whole
+    /// (possibly multi-line) block. See `EditorTextView.drawBackground(in:)`.
     var blockQuoteRegions: [NSRange] = []
 }
