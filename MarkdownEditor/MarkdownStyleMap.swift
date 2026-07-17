@@ -79,8 +79,6 @@ final class MarkdownStyleMap {
     /// Character index → replacement glyph character, for reshaping unordered
     /// bullet markers ("-"/"*") into filled/hollow circles and diamonds by depth.
     private(set) var listMarkerGlyphOverrides: [(location: Int, character: Character)]
-    /// Blockquote source ranges, for drawing the accent bar alongside them.
-    private(set) var blockQuoteRegions: [NSRange]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -90,7 +88,6 @@ final class MarkdownStyleMap {
             self.checkboxes = []
             self.headings = []
             self.listMarkerGlyphOverrides = []
-            self.blockQuoteRegions = []
             return
         }
         let doc = Document(parsing: text)
@@ -104,7 +101,6 @@ final class MarkdownStyleMap {
         self.checkboxes = walker.checkboxes
         self.headings = walker.headings
         self.listMarkerGlyphOverrides = walker.listMarkerGlyphOverrides
-        self.blockQuoteRegions = walker.blockQuoteRegions
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -126,7 +122,6 @@ private struct StyleWalker: MarkupWalker {
     var headings: [(range: NSRange, level: Int, title: String)] = []
     var listMarkerGlyphOverrides: [(location: Int, character: Character)] = []
     var listDepth = 0
-    var blockQuoteRegions: [NSRange] = []
 
     // MARK: - Headings
 
@@ -437,21 +432,20 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        let (markerRanges, lineContentRanges) = blockQuoteLineRanges(in: nsRange)
-        // Style the whole block. The ">" marker on each line is made
-        // invisible via color, not null-glyph hiding — hiding it that way
-        // was found to corrupt line-fragment generation when the blockquote
-        // immediately follows a blank line (down-arrow would skip right over
-        // the blank line, landing on the quote instead). Keeping the marker
-        // as a normal, present-but-transparent glyph avoids that; its
-        // reserved width becomes the gap the accent bar sits in.
+        // Style the whole block (no italics — just a muted color), and color
+        // each line's "> " marker with the accent color used for links and
+        // list bullets. Lines with no "> " of their own (CommonMark's "lazy
+        // continuation": a line directly following a quoted line is still
+        // part of the same blockquote even without a marker) simply keep the
+        // block's own styling — nothing extra needed since there's no marker
+        // to color and no custom drawing anywhere in this feature anymore.
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: nsRange,
             delimiterRanges: [],
             attributes: MarkdownTheme.shared.blockQuoteAttributes
         ))
-        for markerRange in markerRanges {
+        for markerRange in blockQuoteMarkerRanges(in: nsRange) {
             elements.append(StyledElement(
                 fullRange: markerRange,
                 contentRange: markerRange,
@@ -459,23 +453,16 @@ private struct StyleWalker: MarkupWalker {
                 attributes: MarkdownTheme.shared.blockQuoteMarkerAttributes
             ))
         }
-        blockQuoteRegions.append(contentsOf: lineContentRanges)
         descendInto(blockQuote)
     }
 
-    /// For each line within a blockquote's source range, finds the "> " (or
-    /// ">") prefix to hide, and the range of visible content after it.
-    /// The content range (not the marker, and not the whole multi-line
-    /// block) is what the accent bar's position is computed from — querying
-    /// layout for a range that *starts* at a hidden run of glyphs can make
-    /// NSLayoutManager attribute the resulting line fragment to the row
-    /// above instead of the marker's own row.
-    private func blockQuoteLineRanges(in blockRange: NSRange) -> (markers: [NSRange], content: [NSRange]) {
+    /// Finds the "> " (or ">") prefix at the start of each line within a
+    /// blockquote's source range, so it can be colored with the accent color.
+    private func blockQuoteMarkerRanges(in blockRange: NSRange) -> [NSRange] {
         let text = converter.fullString as NSString
         let gt = UInt16(UnicodeScalar(">").value)
         let space = UInt16(UnicodeScalar(" ").value)
         var markers: [NSRange] = []
-        var content: [NSRange] = []
         var lineStart = blockRange.location
         let blockEnd = NSMaxRange(blockRange)
 
@@ -493,24 +480,12 @@ private struct StyleWalker: MarkupWalker {
                     markerEnd += 1
                 }
                 markers.append(NSRange(location: cursor, length: markerEnd - cursor))
-
-                var contentEnd = lineEnd
-                if contentEnd > markerEnd, text.character(at: contentEnd - 1) == 10 {
-                    contentEnd -= 1
-                }
-                // An empty quoted line ("> " with nothing typed after it yet)
-                // has no content range to anchor the bar on — fall back to
-                // the marker itself so the bar still shows immediately
-                // rather than waiting for the next keystroke.
-                content.append(contentEnd > markerEnd
-                    ? NSRange(location: markerEnd, length: contentEnd - markerEnd)
-                    : NSRange(location: cursor, length: markerEnd - cursor))
             }
 
             guard NSMaxRange(lineRange) > lineStart else { break }
             lineStart = NSMaxRange(lineRange)
         }
-        return (markers, content)
+        return markers
     }
 
     // MARK: - Tables

@@ -165,12 +165,11 @@ final class MarkdownTheme {
         blockQuotePara.paragraphSpacing = 4
         blockQuoteAttributes = [
             .foregroundColor: blockQuoteColor,
-            .font: italicFont,
             .paragraphStyle: blockQuotePara,
         ]
-        // Kept as a normal (non-null) glyph, just transparent — see the
-        // comment in MarkdownStyleMap.visitBlockQuote for why.
-        blockQuoteMarkerAttributes = [.foregroundColor: NSColor.clear]
+        // The literal ">" marker, colored with the same accent used for
+        // links/bullets rather than hidden — no custom drawing involved.
+        blockQuoteMarkerAttributes = [.foregroundColor: linkColor]
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]

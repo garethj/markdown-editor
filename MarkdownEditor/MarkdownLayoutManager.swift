@@ -1,17 +1,7 @@
-import AppKit
-
-/// Holds blockquote regions for the text view to read during its
-/// `drawBackground(in:)` pass (see `EditorTextView`). The regions are stored
-/// here rather than drawn here: querying layout (`glyphRange(forCharacterRange:)`,
-/// `boundingRect(forGlyphRange:in:)`) from inside `NSLayoutManager.drawGlyphs`
-/// is reentrant — it can trigger layout for other parts of the document while
-/// layout is already in progress, and TextKit does not guarantee consistent
-/// results when that happens. `drawBackground(in:)` runs as a distinct,
-/// earlier phase of the same draw cycle (before glyphs are drawn), so the
-/// same queries are safe to make there instead.
-final class MarkdownLayoutManager: NSLayoutManager {
-    /// One range per line of quoted content — the visible text after the
-    /// hidden "> " marker, not the marker itself and not the whole
-    /// (possibly multi-line) block. See `EditorTextView.drawBackground(in:)`.
-    var blockQuoteRegions: [NSRange] = []
-}
+// MarkdownLayoutManager removed — the blockquote accent bar it drew was
+// reverted in favor of coloring the literal ">" marker instead (see
+// MarkdownStyleMap.visitBlockQuote and MarkdownTheme.blockQuoteMarkerAttributes).
+// The custom drawBackground/drawGlyphs-based decoration kept surfacing new
+// TextKit edge cases (reentrant layout queries, invalidation timing,
+// CommonMark lazy-continuation lines) across several rounds of fixes, so it
+// was simplified away rather than patched further.
