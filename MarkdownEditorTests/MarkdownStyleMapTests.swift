@@ -72,6 +72,32 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(el.delimiterRanges.map { text($0, in: source) }, ["`", "`"])
     }
 
+    func testAsteriskItalicDelimiterRanges() {
+        let source = "Hello *world* end"
+        let map = MarkdownStyleMap(text: source)
+        guard let el = map.elements.first(where: { text($0.contentRange, in: source) == "world" }) else {
+            return XCTFail("no asterisk-italic element found")
+        }
+        XCTAssertEqual(el.delimiterRanges.map { text($0, in: source) }, ["*", "*"])
+    }
+
+    /// CommonMark: a single asterisk can open/close emphasis mid-word, but a
+    /// single underscore cannot — it's treated as a literal character there.
+    func testIntraWordAsteriskEmphasisWorks() {
+        let source = "He*ll*o"
+        let map = MarkdownStyleMap(text: source)
+        guard let el = map.elements.first(where: { text($0.contentRange, in: source) == "ll" }) else {
+            return XCTFail("expected mid-word asterisk emphasis to parse as italic")
+        }
+        XCTAssertEqual(el.delimiterRanges.map { text($0, in: source) }, ["*", "*"])
+    }
+
+    func testIntraWordUnderscoreDoesNotEmphasize() {
+        let source = "He_ll_o"
+        let map = MarkdownStyleMap(text: source)
+        XCTAssertTrue(map.elements.isEmpty, "CommonMark: underscores mid-word must not trigger emphasis")
+    }
+
     func testLinkBracketsAndURL() {
         let source = "See [the docs](https://example.com) here"
         let map = MarkdownStyleMap(text: source)
@@ -82,6 +108,87 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(text(el.delimiterRanges[0], in: source), "[")
         XCTAssertEqual(text(el.delimiterRanges[1], in: source), "](https://example.com)")
         XCTAssertEqual(el.attributes[.markdownLinkURL] as? String, "https://example.com")
+    }
+
+    // MARK: - Nested / combined emphasis
+
+    func testItalicWithNestedBold() {
+        let source = "_text **bold** text_"
+        let map = MarkdownStyleMap(text: source)
+        guard let italicEl = map.elements.first(where: {
+            $0.delimiterRanges.map({ text($0, in: source) }) == ["_", "_"]
+        }) else {
+            return XCTFail("no italic element found")
+        }
+        XCTAssertEqual(text(italicEl.contentRange, in: source), "text **bold** text")
+
+        guard let boldEl = map.elements.first(where: { text($0.contentRange, in: source) == "bold" }) else {
+            return XCTFail("no nested bold element found")
+        }
+        XCTAssertEqual(boldEl.delimiterRanges.map { text($0, in: source) }, ["**", "**"])
+    }
+
+    func testBoldWithNestedItalic() {
+        let source = "**text _italic_ text**"
+        let map = MarkdownStyleMap(text: source)
+        guard let boldEl = map.elements.first(where: {
+            $0.delimiterRanges.map({ text($0, in: source) }) == ["**", "**"]
+        }) else {
+            return XCTFail("no bold element found")
+        }
+        XCTAssertEqual(text(boldEl.contentRange, in: source), "text _italic_ text")
+
+        guard let italicEl = map.elements.first(where: { text($0.contentRange, in: source) == "italic" }) else {
+            return XCTFail("no nested italic element found")
+        }
+        XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["_", "_"])
+    }
+
+    /// "***text***" gives Strong and Emphasis the *same* reported fullRange
+    /// (swift-markdown doesn't split the run into tidy nested sub-ranges for
+    /// this ambiguous triple-delimiter case) — each one just strips its own
+    /// delimiter width from that shared range, so each one's contentRange
+    /// still contains the other's leftover marker character. What matters is
+    /// that both a bold- and an italic-attributed element exist over the
+    /// full run, and together their delimiter ranges account for all three
+    /// asterisks on each side; MarkdownTextStorageTests confirms the two
+    /// combine into an actual bold-italic font at render time.
+    func testTripleAsteriskCombinesBoldAndItalic() {
+        let source = "***bold italic***"
+        let map = MarkdownStyleMap(text: source)
+        let matching = map.elements.filter { text($0.fullRange, in: source) == source }
+        XCTAssertEqual(matching.count, 2, "expected both a bold-wrapping and an italic-wrapping element")
+
+        guard let boldEl = matching.first(where: { $0.attributes[.font] as? NSFont == MarkdownTheme.shared.boldFont }) else {
+            return XCTFail("no bold element found")
+        }
+        XCTAssertEqual(boldEl.delimiterRanges.map { text($0, in: source) }, ["**", "**"])
+
+        guard let italicEl = matching.first(where: { $0.attributes[.font] as? NSFont == MarkdownTheme.shared.italicFont }) else {
+            return XCTFail("no italic element found")
+        }
+        XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["*", "*"])
+    }
+
+    // MARK: - Code blocks
+
+    /// Documents current behavior: despite the comment in
+    /// `visitCodeBlock` claiming fence lines are hidden as delimiters,
+    /// `delimiterRanges` is actually empty — the fences remain visible,
+    /// styled with the code font along with the rest of the block. If that
+    /// comment reflects the intended behavior rather than the code, this
+    /// test is the one to update alongside a real fix.
+    func testFencedCodeBlockFencesRemainVisible() {
+        let source = "```\nlet x = 1\n```\n"
+        let map = MarkdownStyleMap(text: source)
+        guard let el = map.elements.first(where: {
+            $0.attributes[.foregroundColor] as? NSColor == MarkdownTheme.shared.codeColor
+        }) else {
+            return XCTFail("no code block element found")
+        }
+        XCTAssertEqual(el.delimiterRanges, [])
+        XCTAssertEqual(el.contentRange, el.fullRange)
+        XCTAssertTrue(text(el.fullRange, in: source).hasPrefix("```"))
     }
 
     // MARK: - Headings
@@ -97,6 +204,23 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(map.headings.count, 1)
         XCTAssertEqual(map.headings[0].level, 2)
         XCTAssertEqual(map.headings[0].title, "Section Title")
+    }
+
+    /// A heading's own text can itself contain inline emphasis markup — the
+    /// heading delimiter and the nested emphasis delimiter are independent
+    /// elements and both must be tracked.
+    func testATXHeadingWithNestedItalic() {
+        let source = "## _Section_\nbody"
+        let map = MarkdownStyleMap(text: source)
+        XCTAssertEqual(map.headings.first?.title, "Section")
+
+        guard let italicEl = map.elements.first(where: {
+            text($0.contentRange, in: source) == "Section" &&
+            $0.delimiterRanges.map({ text($0, in: source) }) == ["_", "_"]
+        }) else {
+            return XCTFail("expected a nested italic element inside the heading")
+        }
+        _ = italicEl
     }
 
     /// Regression: Setext headings ("Text\n===") must hide only the underline
@@ -159,6 +283,24 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(map.listMarkerGlyphOverrides[1].character, "\u{25CB}") // ○
     }
 
+    /// Nested inline formatting inside a list item's text must not disturb
+    /// the item's own bullet-marker handling.
+    func testBoldWithNestedItalicInsideListItem() {
+        let source = "- **Keyboard _shortcuts_**: Cmd+B for bold\n"
+        let map = MarkdownStyleMap(text: source)
+        guard let boldEl = map.elements.first(where: { text($0.contentRange, in: source) == "Keyboard _shortcuts_" }) else {
+            return XCTFail("no bold element found in list item")
+        }
+        XCTAssertEqual(boldEl.delimiterRanges.map { text($0, in: source) }, ["**", "**"])
+
+        guard let italicEl = map.elements.first(where: { text($0.contentRange, in: source) == "shortcuts" }) else {
+            return XCTFail("no nested italic element found in list item")
+        }
+        XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["_", "_"])
+
+        XCTAssertEqual(map.listMarkerGlyphOverrides.count, 1)
+    }
+
     // MARK: - Tables
 
     func testTableColumnPaddingKernsShortCells() {
@@ -181,6 +323,27 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(kernValues.count, 2)
         XCTAssertEqual(kernValues[0], 1 * charWidth, accuracy: 0.01) // "Name": deficit 0, +1 pipe
         XCTAssertEqual(kernValues[1], 3 * charWidth, accuracy: 0.01) // "Bo": deficit 2, +1 pipe
+    }
+
+    /// Italic (not just bold) inside a table cell must also count its hidden
+    /// delimiter chars toward the cell's visual width, or column alignment
+    /// drifts for any table with italic content.
+    func testTableCellWithItalicAccountsForHiddenDelimitersInWidth() {
+        // Column 1: "Status" (6 chars, header) vs "_Away_" (6 raw chars, 2
+        // hidden underscores -> visual width 4, deficit 2). It's the last
+        // column, so no +1 pipe compensation. Column 0 is the same "Name"/
+        // "Bo" case as the bold-cell test above.
+        let source = "| Name | Status |\n| --- | --- |\n| Bo | _Away_ |\n"
+        let map = MarkdownStyleMap(text: source)
+
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+        let kernValues = map.elements
+            .compactMap { $0.attributes[.kern] as? CGFloat }
+            .sorted()
+        XCTAssertEqual(kernValues.count, 3)
+        XCTAssertEqual(kernValues[0], 1 * charWidth, accuracy: 0.01) // "Name": deficit 0, +1 pipe
+        XCTAssertEqual(kernValues[1], 2 * charWidth, accuracy: 0.01) // "_Away_": deficit 2, last column
+        XCTAssertEqual(kernValues[2], 3 * charWidth, accuracy: 0.01) // "Bo": deficit 2, +1 pipe
     }
 
     func testHeadingsCollectedInDocumentOrderForTOC() {

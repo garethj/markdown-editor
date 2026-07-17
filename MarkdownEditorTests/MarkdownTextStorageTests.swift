@@ -21,6 +21,48 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false)
     }
 
+    /// Regression coverage for `mergeFontTraits`: nesting bold inside italic
+    /// (or vice versa) must produce a single merged bold-italic font, not
+    /// just whichever formatting was applied last.
+    /// Regression: the rounded system design used for bold body text (see
+    /// MarkdownTheme.roundedFont) has no true italic face — merging bold
+    /// (rounded) with italic used to silently drop the italic trait rather
+    /// than falling back to a descriptor that actually has one.
+    func testNestedBoldInsideItalicMergesToBoldItalicFont() {
+        let source = "_text **bold** text_"
+        let storage = makeStorage(source)
+        let idx = (source as NSString).range(of: "bold").location
+        let traits = (attributes(at: idx, in: storage)[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        XCTAssertTrue(traits.contains(.bold))
+        XCTAssertTrue(traits.contains(.italic))
+    }
+
+    func testNestedItalicInsideBoldMergesToBoldItalicFont() {
+        let source = "**text _italic_ text**"
+        let storage = makeStorage(source)
+        let idx = (source as NSString).range(of: "italic").location
+        let traits = (attributes(at: idx, in: storage)[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        XCTAssertTrue(traits.contains(.bold))
+        XCTAssertTrue(traits.contains(.italic))
+    }
+
+    func testTripleAsteriskEmphasisMergesToBoldItalicFont() {
+        let source = "***bold italic***"
+        let storage = makeStorage(source)
+        let idx = (source as NSString).range(of: "bold").location
+        let traits = (attributes(at: idx, in: storage)[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        XCTAssertTrue(traits.contains(.bold))
+        XCTAssertTrue(traits.contains(.italic))
+    }
+
+    func testFencedCodeBlockAppliesMonospaceFont() {
+        let source = "```\nlet x = 1\n```\n"
+        let storage = makeStorage(source)
+        let idx = (source as NSString).range(of: "let x").location
+        let traits = (attributes(at: idx, in: storage)[.font] as? NSFont)?.fontDescriptor.symbolicTraits ?? []
+        XCTAssertTrue(traits.contains(.monoSpace))
+    }
+
     /// Regression: a compound construct (blockquote) has one wide "whole
     /// block" element plus one small colored "> " marker element per line.
     /// Editing only line two must not cause line one's marker color to be

@@ -70,4 +70,16 @@ final class MarkdownHTMLRendererTests: XCTestCase {
         XCTAssertTrue(html.contains("<em>italic</em>"))
         XCTAssertTrue(html.contains("<del>gone</del>"))
     }
+
+    func testNestedEmphasisHTML() {
+        let html = body("_text **bold** text_")
+        XCTAssertTrue(html.contains("<em>text <strong>bold</strong> text</em>"))
+    }
+
+    func testTripleAsteriskEmphasisHTML() {
+        let html = body("***bold italic***")
+        // Nesting order (<strong><em>...</em></strong> vs the reverse) is a
+        // parser detail — just confirm both wrap the same text.
+        XCTAssertTrue(html.contains("<strong><em>bold italic</em></strong>") || html.contains("<em><strong>bold italic</strong></em>"))
+    }
 }

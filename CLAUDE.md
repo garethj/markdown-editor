@@ -70,6 +70,10 @@ For that remaining class, the fallback is manually driving the built app or aski
 
 **Debug builds split code into a dylib.** `Contents/MacOS/MarkdownEditor` in a Debug build is a thin stub; the actual compiled code lives in `Contents/MacOS/MarkdownEditor.debug.dylib` (Xcode's debug-dylib optimization). `strings`/`grep` on the main executable to confirm a change landed will find nothing — check the `.debug.dylib` instead.
 
+## Keeping EXAMPLE.md current
+
+`EXAMPLE.md` (repo root) is a live showcase of every markdown construct the app understands — a demo file for humans to open in the app and see hidden-formatting rendering in action, not a test. **Whenever you add, change, or remove a formatting feature** (a new construct `MarkdownStyleMap` understands, a change to how an existing one renders, a removed feature), update the matching section of `EXAMPLE.md` in the same change. Don't let it silently drift out of sync with what the app actually does — a demo file that lies about the feature set is worse than no demo file. If you're unsure whether a change is "formatting-feature-shaped" enough to warrant an update, err toward updating it.
+
 ## Architecture
 
 This is a native macOS document-based app (SwiftUI `DocumentGroup`) using **TextKit 1** — not TextKit 2. This is intentional: the glyph-hiding mechanism (`NSLayoutManagerDelegate.shouldGenerateGlyphs`) is a TextKit 1 API.

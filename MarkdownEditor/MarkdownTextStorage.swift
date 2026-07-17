@@ -243,6 +243,21 @@ final class MarkdownTextStorage: NSTextStorage {
         }
 
         let mergedDescriptor = baseFont.fontDescriptor.withSymbolicTraits(unionTraits)
-        return NSFont(descriptor: mergedDescriptor, size: size) ?? incoming
+        if let merged = NSFont(descriptor: mergedDescriptor, size: size),
+           merged.fontDescriptor.symbolicTraits.isSuperset(of: unionTraits) {
+            return merged
+        }
+
+        // baseFont's descriptor couldn't actually resolve every requested
+        // trait — most notably, the rounded system design (see
+        // MarkdownTheme.roundedFont) has no true italic face and silently
+        // drops the trait instead of failing, so nesting bold inside italic
+        // (or vice versa) would otherwise lose the italic and render as
+        // plain bold. Fall back to the same body-text descriptor
+        // MarkdownTheme itself uses for its italic/bold-italic fonts, which
+        // does resolve italic correctly.
+        let fallbackDescriptor = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
+            .withSymbolicTraits(unionTraits)
+        return NSFont(descriptor: fallbackDescriptor, size: size) ?? incoming
     }
 }
