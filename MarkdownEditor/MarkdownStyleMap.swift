@@ -192,14 +192,21 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        let openDelim = NSRange(location: nsRange.location, length: 2)
-        let closeDelim = NSRange(location: NSMaxRange(nsRange) - 2, length: 2)
-        let contentRange = NSRange(location: nsRange.location + 2, length: nsRange.length - 4)
+        let delimiterRanges: [NSRange]
+        let contentRange: NSRange
+        if let ambiguous = ambiguousTripleEmphasisPartner(of: strong, siblingRange: nsRange, as: Emphasis.self) {
+            (delimiterRanges, contentRange) = ambiguous
+        } else {
+            let openDelim = NSRange(location: nsRange.location, length: 2)
+            let closeDelim = NSRange(location: NSMaxRange(nsRange) - 2, length: 2)
+            delimiterRanges = [openDelim, closeDelim]
+            contentRange = NSRange(location: nsRange.location + 2, length: nsRange.length - 4)
+        }
 
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: contentRange,
-            delimiterRanges: [openDelim, closeDelim],
+            delimiterRanges: delimiterRanges,
             attributes: MarkdownTheme.shared.boldAttributes
         ))
         descendInto(strong)
@@ -217,17 +224,61 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        let openDelim = NSRange(location: nsRange.location, length: 1)
-        let closeDelim = NSRange(location: NSMaxRange(nsRange) - 1, length: 1)
-        let contentRange = NSRange(location: nsRange.location + 1, length: nsRange.length - 2)
+        let delimiterRanges: [NSRange]
+        let contentRange: NSRange
+        if let ambiguous = ambiguousTripleEmphasisPartner(of: emphasis, siblingRange: nsRange, as: Strong.self) {
+            (delimiterRanges, contentRange) = ambiguous
+        } else {
+            let openDelim = NSRange(location: nsRange.location, length: 1)
+            let closeDelim = NSRange(location: NSMaxRange(nsRange) - 1, length: 1)
+            delimiterRanges = [openDelim, closeDelim]
+            contentRange = NSRange(location: nsRange.location + 1, length: nsRange.length - 2)
+        }
 
         elements.append(StyledElement(
             fullRange: nsRange,
             contentRange: contentRange,
-            delimiterRanges: [openDelim, closeDelim],
+            delimiterRanges: delimiterRanges,
             attributes: MarkdownTheme.shared.italicAttributes
         ))
         descendInto(emphasis)
+    }
+
+    /// "***text***" is ambiguous: cmark reports the Strong and its nested
+    /// Emphasis (or vice versa) as spanning the *identical* source range,
+    /// rather than one properly nested inside the other. Naively letting
+    /// each side hide its own fixed-width delimiter from that shared
+    /// range's edges double-counts one edge character and leaves the
+    /// innermost marker on each side visible. When detected, whichever node
+    /// is the true AST *parent* of the pair claims the full combined
+    /// 3-character run on each side; the nested child claims none — but
+    /// both still contribute their own attributes (bold/italic) over the
+    /// same, correctly-trimmed content, so the merge still produces
+    /// bold-italic text.
+    private func ambiguousTripleEmphasisPartner<Sibling: Markup>(
+        of node: Markup, siblingRange: NSRange, as siblingType: Sibling.Type
+    ) -> ([NSRange], NSRange)? {
+        func rangeMatches(_ sibling: Sibling?) -> Bool {
+            guard let sibling, let sourceRange = sibling.range,
+                  let ns = converter.nsRange(for: sourceRange) else { return false }
+            return ns == siblingRange
+        }
+
+        // MarkupChildren is only a Sequence, not a Collection, so it has no
+        // plain `.first` property — `.first` alone resolves ambiguously to
+        // the `first(where:)` method reference rather than an element.
+        // `next()` mutates the iterator's internal state, so it needs a var.
+        var childIterator = node.children.makeIterator()
+        let firstChild = childIterator.next()
+        let isOuter = rangeMatches(firstChild as? Sibling)
+        let isInner = rangeMatches(node.parent as? Sibling)
+        guard isOuter || isInner else { return nil }
+
+        let contentRange = NSRange(location: siblingRange.location + 3, length: max(0, siblingRange.length - 6))
+        let delimiterRanges: [NSRange] = isOuter
+            ? [NSRange(location: siblingRange.location, length: 3), NSRange(location: NSMaxRange(siblingRange) - 3, length: 3)]
+            : []
+        return (delimiterRanges, contentRange)
     }
 
     // MARK: - Inline code

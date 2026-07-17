@@ -16,6 +16,8 @@ cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debu
 
 Requires macOS 14+ and Xcode. The `swift-markdown` (Apple) package is pulled automatically via SPM.
 
+**Reinstall to `/Applications` after code changes the user might check manually — don't wait to be asked.** This is a plain file copy (the command above), not disruptive like the interactive UI suite, so it doesn't need permission first. Do it as part of finishing any change that affects rendering, behavior, or anything else the user might open the app to look at (a bug fix, a new/changed formatting feature, a UI tweak) — skip it for pure test-only or documentation-only changes, where there's no compiled behavior to verify. The point is that `/Applications/MarkdownEditor.app` should never quietly be several commits behind the code, leaving the user debugging against a stale build without realizing it — this has actually happened (a font-merge fix looked "not working" because the installed app predated it by four days).
+
 ## Testing
 
 Two test targets, at different tiers.

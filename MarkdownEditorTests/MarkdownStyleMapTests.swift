@@ -144,30 +144,38 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["_", "_"])
     }
 
-    /// "***text***" gives Strong and Emphasis the *same* reported fullRange
-    /// (swift-markdown doesn't split the run into tidy nested sub-ranges for
-    /// this ambiguous triple-delimiter case) — each one just strips its own
-    /// delimiter width from that shared range, so each one's contentRange
-    /// still contains the other's leftover marker character. What matters is
-    /// that both a bold- and an italic-attributed element exist over the
-    /// full run, and together their delimiter ranges account for all three
-    /// asterisks on each side; MarkdownTextStorageTests confirms the two
-    /// combine into an actual bold-italic font at render time.
+    /// Regression: "***text***" gives Strong and Emphasis the *same*
+    /// reported fullRange (swift-markdown doesn't split the run into tidy
+    /// nested sub-ranges for this ambiguous triple-delimiter case). Letting
+    /// each side independently hide its own fixed-width delimiter from that
+    /// shared range's edges used to double-count one edge character and
+    /// leave the innermost asterisk on each side visible as literal text.
+    /// The AST parent of the pair now claims the full 3-character run on
+    /// each side instead, and the nested child claims none — so between the
+    /// two elements, all six asterisks (three per side) are accounted for
+    /// exactly once, and both a bold- and an italic-attributed element
+    /// still exist over the correctly-trimmed content.
     func testTripleAsteriskCombinesBoldAndItalic() {
         let source = "***bold italic***"
         let map = MarkdownStyleMap(text: source)
         let matching = map.elements.filter { text($0.fullRange, in: source) == source }
         XCTAssertEqual(matching.count, 2, "expected both a bold-wrapping and an italic-wrapping element")
+        XCTAssertTrue(matching.allSatisfy { text($0.contentRange, in: source) == "bold italic" })
 
         guard let boldEl = matching.first(where: { $0.attributes[.font] as? NSFont == MarkdownTheme.shared.boldFont }) else {
             return XCTFail("no bold element found")
         }
-        XCTAssertEqual(boldEl.delimiterRanges.map { text($0, in: source) }, ["**", "**"])
-
         guard let italicEl = matching.first(where: { $0.attributes[.font] as? NSFont == MarkdownTheme.shared.italicFont }) else {
             return XCTFail("no italic element found")
         }
-        XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["*", "*"])
+
+        // Exactly one of the pair is the AST parent and claims all three
+        // asterisks on each side; the other claims none. Which one is
+        // "outer" is a parser detail, so check the pair jointly rather than
+        // assuming which specific element (bold or italic) it'll be.
+        let delimiterOwners = [boldEl, italicEl].filter { !$0.delimiterRanges.isEmpty }
+        XCTAssertEqual(delimiterOwners.count, 1, "expected exactly one of the pair to own the delimiters")
+        XCTAssertEqual(delimiterOwners[0].delimiterRanges.map { text($0, in: source) }, ["***", "***"])
     }
 
     // MARK: - Code blocks

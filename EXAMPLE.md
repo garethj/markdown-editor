@@ -23,7 +23,7 @@ Setext Heading, Level 2
 
 ## Emphasis
 
-This is **bold** text. This is `_italic_` text using underscores, or *italic* text using asterisks — asterisks also work mid-word (He*ll*o), unlike underscores, which CommonMark disallows mid-word (He_ll_o stays literal).
+This is **bold** text. This is _italic_ text using underscores, or *italic* text using asterisks — asterisks also work mid-word (He*ll*o), unlike underscores, which CommonMark disallows mid-word (He_ll_o stays literal).
 
 Nested emphasis merges correctly rather than just keeping whichever was applied last: _italic containing **nested bold**_ and **bold containing _nested italic_** both render the overlapping word as bold-italic. Three asterisks combine both from a single run: ***bold and italic together***.
 
@@ -100,7 +100,7 @@ Pipes and the separator row are hidden; columns stay aligned via kerning compute
 
 ## Formatting nested inside other constructs
 
-Emphasis works inside list items — **bold with _nested italic_ inside a list item**.
+- Emphasis works inside list items — **bold with _nested italic_ inside a list item**.
 
 ## _An italicized heading_
 
