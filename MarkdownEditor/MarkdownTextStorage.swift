@@ -76,25 +76,46 @@ final class MarkdownTextStorage: NSTextStorage {
         }
         let isFullRestyle = NSEqualRanges(dirtyRange, fullRange)
 
-        // Reset attributes only on the dirty region
-        backingStore.setAttributes(MarkdownTheme.shared.defaultAttributes, range: dirtyRange)
-
         // Parse markdown (full AST required — cmark doesn't support incremental)
         let styleMap = MarkdownStyleMap(text: text)
         lastStyleMap = styleMap
 
+        // Widen the dirty region to cover the full range of any element that
+        // merely intersects it. This matters for compound styling — e.g. a
+        // blockquote's own wide "whole block" element plus one small colored
+        // "> " marker element per line: if only the edited line's own narrow
+        // slice were used, editing one line would re-touch the wide element
+        // (which intersects) while a marker element on a *different* line of
+        // the same block wouldn't (its own tiny range doesn't intersect the
+        // narrow dirty region) — so the wide element's re-application would
+        // silently overwrite that marker's color with no chance for it to
+        // reassert itself. Widening ensures every sub-element sharing space
+        // with anything already being restyled gets restyled too.
+        var effectiveDirtyRange = dirtyRange
+        if !isFullRestyle {
+            for element in styleMap.elements {
+                guard element.fullRange.location + element.fullRange.length <= fullRange.length else { continue }
+                if NSIntersectionRange(element.fullRange, dirtyRange).length > 0 {
+                    effectiveDirtyRange = NSUnionRange(effectiveDirtyRange, element.fullRange)
+                }
+            }
+        }
+
+        // Reset attributes only on the (possibly widened) dirty region
+        backingStore.setAttributes(MarkdownTheme.shared.defaultAttributes, range: effectiveDirtyRange)
+
         // Apply styles: scope to dirty region for incremental, all for full restyle
         for element in styleMap.elements {
             guard element.fullRange.location + element.fullRange.length <= fullRange.length else { continue }
-            if isFullRestyle || NSIntersectionRange(element.fullRange, dirtyRange).length > 0 {
+            if isFullRestyle || NSIntersectionRange(element.fullRange, effectiveDirtyRange).length > 0 {
                 applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
             }
         }
 
         // Style bare URLs and highlights scoped to dirty region
-        applyBareURLStyling(text: text, fullRange: dirtyRange)
+        applyBareURLStyling(text: text, fullRange: effectiveDirtyRange)
 
-        let highlightElements = applyHighlightStyling(text: text, fullRange: dirtyRange)
+        let highlightElements = applyHighlightStyling(text: text, fullRange: effectiveDirtyRange)
         if !highlightElements.isEmpty {
             styleMap.appendElements(highlightElements)
         }
