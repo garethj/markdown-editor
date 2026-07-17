@@ -124,6 +124,7 @@ struct StatusBarView: View {
                 Text("Unsaved Changes")
                     .font(.system(size: 11))
                     .foregroundColor(.orange)
+                    .accessibilityIdentifier("UnsavedChangesIndicator")
             }
             Spacer()
             Text(statusText)
@@ -386,6 +387,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         // Create text view
         let textView = EditorTextView(frame: .zero, textContainer: textContainer)
+        textView.setAccessibilityIdentifier("MarkdownEditorTextView")
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true

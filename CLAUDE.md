@@ -18,7 +18,11 @@ Requires macOS 14+ and Xcode. The `swift-markdown` (Apple) package is pulled aut
 
 ## Testing
 
-There's an XCTest target, `MarkdownEditorTests`, hosted in the app (`TEST_HOST`/`@testable import MarkdownEditor`). It covers logic that's reachable without a live window/WindowServer session: `MarkdownStyleMap` parsing, `MarkdownTextStorage`'s incremental dirty-region styling, `MarkdownHTMLRenderer`, Return-key list continuation, `MarkdownDocument` save-state, and `ExternalChangeResolver` (the file-watcher conflict decision logic — see below). Runs in well under a second.
+Two test targets, at different tiers.
+
+### Fast unit suite — `MarkdownEditorTests` — run before every commit
+
+Hosted in the app (`TEST_HOST`/`@testable import MarkdownEditor`). Covers logic that's reachable without a live window/WindowServer session: `MarkdownStyleMap` parsing, `MarkdownTextStorage`'s incremental dirty-region styling, `MarkdownHTMLRenderer`, Return-key list continuation, `MarkdownDocument` save-state, and `ExternalChangeResolver` (the file-watcher conflict decision logic). Headless, runs in well under a second.
 
 ```bash
 xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destination 'platform=macOS' -only-testing:MarkdownEditorTests
@@ -26,20 +30,39 @@ xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destin
 
 **Run this before every commit.** A failure means stop and investigate — don't commit past it, and don't skip the run because a change "looks safe." If a test fails and the fix isn't obvious, say so rather than silently loosening the assertion to make it pass.
 
-**When fixing a bug or adding a feature, add or extend a test covering it**, if the logic is reachable without a live window (most parsing/styling/state logic is — check whether the equivalent existing test file already covers the area, e.g. a new inline-markdown construct belongs in `MarkdownStyleMapTests`, a new save/conflict edge case in `ExternalChangeResolverTests`). If the logic you just touched lives inline in `MarkdownTextView.Coordinator` and isn't reachable that way (private, or entangled with `NSTextView`/`NSDocument`/alerts), consider pulling the actual decision logic out into its own small internal type first — the way `ExternalChangeResolver.swift` was split out of `handleExternalModification` — rather than leaving it untestable. Don't force a test for logic that's genuinely only expressible as "does this render/scroll/look correct" — that class of bug isn't this suite's job (see below).
+**When fixing a bug or adding a feature, add or extend a test covering it**, if the logic is reachable without a live window (most parsing/styling/state logic is — check whether the equivalent existing test file already covers the area, e.g. a new inline-markdown construct belongs in `MarkdownStyleMapTests`, a new save/conflict edge case in `ExternalChangeResolverTests`). If the logic you just touched lives inline in `MarkdownTextView.Coordinator` and isn't reachable that way (private, or entangled with `NSTextView`/`NSDocument`/alerts), consider pulling the actual decision logic out into its own small internal type first — the way `ExternalChangeResolver.swift` was split out of `handleExternalModification` — rather than leaving it untestable. Don't force a test for logic that's genuinely only expressible as "does this render/scroll/look correct" — that's the other suite's job.
 
-**What this suite structurally cannot catch** — these need a real window/WindowServer session, human visual judgment, or real async timing, none of which a headless XCTest run provides:
-- Actual glyph generation / rendering: `shouldGenerateGlyphs` delimiter-hiding, cursor reveal, blockquote/table visual layout. The past bugs in this area ("blockquote bar rendering one line too high," "scroll-to-bottom on every keystroke," "text wrapping not adjusting on window resize") only manifested through a real `NSLayoutManager` laying out into a real, sized container — a `MarkdownTextStorage` built in isolation never generates glyphs.
-- Real async/filesystem timing: `FileWatcher`'s actual `DispatchSource` events, the 300ms delete/rename reattach delay, the save-verification retry chain's real timing, genuinely concurrent overlapping saves. `ExternalChangeResolverTests` covers the classification *logic* with contrived inputs, not real interleaving under disk I/O.
-- The deeper AppKit-level document conflict path (`NSDocumentController`, `fileModificationDate`, AppKit's own built-in "changed by another application" alert) — `applyExternalText`'s workaround for it isn't exercised at all.
-- `NSAlert` sheet modal behavior (window-modal, blocks keystrokes) — needs a real window.
-- PDF export (`MarkdownPDFExporter`'s WKWebView → `NSPrintOperation` pipeline) — zero coverage; this is a whole untested subsystem.
-- Visual/theme correctness — colors, fonts, checkbox glyph shapes, dark-mode appearance. A test can assert an attribute was *set*; it can't assert something *looks right*.
-- Performance/memory regressions (see `PERFORMANCE.md`) and large-file-threshold UI behavior.
-- Bugs that only emerge after a long chained sequence of real incremental edits (each test applies one edit in isolation) or from features interacting live (TOC sync during an external-merge, find-bar state during reload, undo/redo across programmatic vs. user edits).
-- Real mouse-click-to-character-index mapping (`Cmd`+click URLs, checkbox click hit-testing) — tests call the handler functions directly with a given character index, not through actual hit-testing.
+### Interactive UI suite — `MarkdownEditorUITests` — offer, never auto-run
 
-For that class of bug, the fallback is manually driving the built app or asking the user to check visually — not a test.
+A second target drives the real built app through XCUITest: a real window, real synthesized mouse clicks and keystrokes, a real `NSSavePanel` sheet. It exists specifically to cover what the fast suite structurally can't (see below). It is **not** part of the pre-commit command above — that command explicitly filters to `-only-testing:MarkdownEditorTests`, so the UI suite only runs when named explicitly (xcodebuild's `-only-testing` doesn't play well with `skipped` testables, so don't rely on scheme-level skipping — always use the `-only-testing:` filter shown above and never run `xcodebuild test` against this scheme with no filter):
+
+```bash
+xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destination 'platform=macOS' -only-testing:MarkdownEditorUITests
+```
+
+**This takes over the physical mouse and keyboard while it runs** — real windows come to the front, real clicks and keystrokes are synthesized on the actual display, a real save panel gets driven. It's genuinely disruptive to use the laptop for anything else while it runs, and a full pass takes a couple of minutes.
+
+**Offer to run it — don't run it unprompted, and don't skip offering.** After a change that touches anything in the "what this covers" list below (glyph/cursor rendering, window/scroll/resize behavior, `FileWatcher`/external-edit/conflict handling, PDF export, checkbox or link click hit-testing), tell the user what changed and ask whether they'd like the interactive suite run now. Say plainly that it will take over the mouse and keyboard and that they should stop using the laptop (or at least stay off this display) until it finishes or they interrupt it. Wait for explicit go-ahead — a prior "yes" for one run doesn't authorize the next one. If they decline or don't respond, don't nag again for the same change; the fast suite plus a manual look is an acceptable fallback for that commit. Changes that only touch parsing/state logic already covered by the fast suite don't need this offer.
+
+If a UI test fails, don't assume it's the test's fault (screen-recording/accessibility permissions, timing, an actual regression are all plausible) — investigate before loosening an assertion or increasing a timeout just to make it pass.
+
+**What the UI suite covers:**
+- `LayoutUITests` — scroll position staying put while editing near the top of a long document (regression class for "scroll-to-bottom on every keystroke"), via coarse region-based screenshot comparison.
+- `CheckboxUITests` — real mouse-click hit-testing on task-list checkboxes, through an actual click at a screen point rather than calling the handler with a given character index.
+- `ExternalChangeUITests` — the real `FileWatcher` → merge/conflict path end-to-end: an actual external process writing the file while the app has it open, the real `NSAlert` conflict sheet, "Keep Mine," and confirming undo doesn't revert a silent merge.
+- `PDFExportUITests` — the WKWebView → `NSPrintOperation` pipeline actually completing (regression guard for the documented `op.run()` deadlock trap) and producing a real, non-empty, valid PDF.
+
+A window-resize-reflow test (dragging the window border and checking the text view reflows) was attempted but dropped — synthesizing a reliable window-border drag via XCUITest proved too unreliable, especially against a window restored zoomed/maximized from a prior session (five different drag techniques all produced zero measured size change). If you want to revisit this, expect to spend real iteration time on it; it's a known-hard corner of macOS UI testing, not a quick fix.
+
+**Still not covered by either suite:**
+- Window resize reflowing text/prose width — attempted, dropped for reliability reasons (see above). Needs either a better drag technique or a non-drag way to verify reflow (e.g. asserting on `MarkdownTextContainer`'s wide-line-fragment behavior for tables directly, without touching the window).
+- Pixel-perfect visual/theme correctness — colors, fonts, checkbox glyph shape, dark-mode appearance. `LayoutUITests`' scroll-stability check does coarse region-based screenshot comparison (detects "did the content silently move," not "does it look right"). Needs human visual judgment, not a pass/fail gate.
+- Cmd+click opening a URL in the real default browser — intentionally not automated, since it would actually open a browser tab during a test run.
+- AppKit document-conflict interactions beyond the specific paths `ExternalChangeUITests` drives (e.g. what the *other*, AppKit-native "changed by another application" alert does after a "Keep Mine" resolution).
+- Performance/memory regressions (see `PERFORMANCE.md`).
+- Bugs that only emerge from a long chained sequence of real edits or several features interacting live (TOC sync during an external merge, find-bar state during reload).
+
+For that remaining class, the fallback is manually driving the built app or asking the user to check visually — not a test.
 
 **Debug builds split code into a dylib.** `Contents/MacOS/MarkdownEditor` in a Debug build is a thin stub; the actual compiled code lives in `Contents/MacOS/MarkdownEditor.debug.dylib` (Xcode's debug-dylib optimization). `strings`/`grep` on the main executable to confirm a change landed will find nothing — check the `.debug.dylib` instead.
 
