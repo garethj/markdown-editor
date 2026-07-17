@@ -498,7 +498,13 @@ private struct StyleWalker: MarkupWalker {
                 if contentEnd > markerEnd, text.character(at: contentEnd - 1) == 10 {
                     contentEnd -= 1
                 }
-                content.append(NSRange(location: markerEnd, length: max(0, contentEnd - markerEnd)))
+                // An empty quoted line ("> " with nothing typed after it yet)
+                // has no content range to anchor the bar on — fall back to
+                // the marker itself so the bar still shows immediately
+                // rather than waiting for the next keystroke.
+                content.append(contentEnd > markerEnd
+                    ? NSRange(location: markerEnd, length: contentEnd - markerEnd)
+                    : NSRange(location: cursor, length: markerEnd - cursor))
             }
 
             guard NSMaxRange(lineRange) > lineStart else { break }

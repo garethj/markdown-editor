@@ -49,7 +49,10 @@ final class MarkdownTextStorage: NSTextStorage {
             lastStyleMap = nil
             for lm in layoutManagers {
                 (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: nil)
-                (lm as? MarkdownLayoutManager)?.blockQuoteRegions = []
+                if let markdownLM = lm as? MarkdownLayoutManager {
+                    markdownLM.blockQuoteRegions = []
+                    lm.textContainers.first?.textView?.needsDisplay = true
+                }
             }
             return
         }
@@ -103,7 +106,14 @@ final class MarkdownTextStorage: NSTextStorage {
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
         for lm in layoutManagers {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
-            (lm as? MarkdownLayoutManager)?.blockQuoteRegions = styleMap.blockQuoteRegions
+            if let markdownLM = lm as? MarkdownLayoutManager {
+                markdownLM.blockQuoteRegions = styleMap.blockQuoteRegions
+                // The accent bar is drawn in the margin, outside any glyph's own
+                // bounding box, so TextKit's normal per-edit invalidation (which
+                // is glyph-rect based) doesn't reliably cover it — without this,
+                // the bar can lag a keystroke behind or a stale one can persist.
+                lm.textContainers.first?.textView?.needsDisplay = true
+            }
             if let container = lm.textContainers.first as? MarkdownTextContainer {
                 container.tableLineRanges = styleMap.tableRegions
             }
