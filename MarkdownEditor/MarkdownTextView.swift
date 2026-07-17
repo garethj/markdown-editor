@@ -195,6 +195,37 @@ final class EditorTextView: NSTextView {
         case show, nextMatch, previousMatch, dismiss
     }
 
+    // MARK: - Blockquote accent bar
+
+    /// Runs before glyphs are drawn, as a distinct (non-reentrant) phase of
+    /// the same draw cycle — the safe place to query layout for custom
+    /// decoration, unlike inside an NSLayoutManager.drawGlyphs override.
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let layoutManager = layoutManager as? MarkdownLayoutManager,
+              !layoutManager.blockQuoteRegions.isEmpty,
+              textContainer != nil
+        else { return }
+
+        let barColor = MarkdownTheme.shared.linkColor
+        let barWidth: CGFloat = 3
+        let barOffsetFromText: CGFloat = 12
+        let origin = textContainerOrigin
+
+        for charRange in layoutManager.blockQuoteRegions {
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: charRange, actualCharacterRange: nil)
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, _, _ in
+                var barRect = usedRect
+                barRect.origin.x += origin.x - barOffsetFromText
+                barRect.origin.y += origin.y
+                barRect.size.width = barWidth
+                guard barRect.intersects(rect) else { return }
+                barColor.setFill()
+                NSBezierPath(roundedRect: barRect, xRadius: barWidth / 2, yRadius: barWidth / 2).fill()
+            }
+        }
+    }
+
     // MARK: - Cmd+click to open links
 
     override func mouseDown(with event: NSEvent) {

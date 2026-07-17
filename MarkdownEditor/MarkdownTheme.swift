@@ -77,11 +77,19 @@ final class MarkdownTheme {
 
         // Fonts
         // A rounded system design reads as noticeably warmer/friendlier than
-        // plain SF Pro, at zero asset cost.
+        // plain SF Pro, at zero asset cost. The rounded design has no true
+        // italic face, though — asking for rounded+italic together silently
+        // resolves to a non-italic rounded font rather than failing, so
+        // italic/bold-italic stick with the plain (non-rounded) system font,
+        // which does have real italic glyphs.
         defaultFont = Self.roundedFont(size: baseSize, weight: .regular) ?? .systemFont(ofSize: baseSize)
         boldFont = Self.roundedFont(size: baseSize, weight: .bold) ?? .boldSystemFont(ofSize: baseSize)
-        italicFont = Self.roundedFont(size: baseSize, weight: .regular, traits: .italic) ?? .systemFont(ofSize: baseSize)
-        boldItalicFont = Self.roundedFont(size: baseSize, weight: .bold, traits: [.bold, .italic]) ?? .boldSystemFont(ofSize: baseSize)
+        let italicDesc = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
+            .withSymbolicTraits(.italic)
+        italicFont = NSFont(descriptor: italicDesc, size: baseSize) ?? .systemFont(ofSize: baseSize)
+        let boldItalicDesc = NSFontDescriptor.preferredFontDescriptor(forTextStyle: .body)
+            .withSymbolicTraits([.bold, .italic])
+        boldItalicFont = NSFont(descriptor: boldItalicDesc, size: baseSize) ?? .boldSystemFont(ofSize: baseSize)
         codeFont = .monospacedSystemFont(ofSize: baseSize - 1, weight: .regular)
         codeBoldFont = .monospacedSystemFont(ofSize: baseSize - 1, weight: .bold)
 
@@ -165,10 +173,8 @@ final class MarkdownTheme {
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
         highlightAttributes = [.backgroundColor: highlightColor]
-        // The literal "[ ]"/"[x]" stays in place for layout (reserving exactly
-        // its natural width) but is invisible — MarkdownLayoutManager draws an
-        // actual rounded checkbox glyph over that reserved space instead.
-        checkboxTextAttributes = [.font: codeBoldFont, .foregroundColor: NSColor.clear]
+        checkboxUncheckedAttributes = [.font: codeBoldFont, .foregroundColor: delimiterColor]
+        checkboxCheckedAttributes = [.font: codeBoldFont, .foregroundColor: checkboxCheckedColor]
         // The bullet glyph (●/○/◆/◇) renders large relative to body text at
         // full point size, so it gets a smaller dedicated font; ordered-list
         // numbers are real digits and stay legible at the normal text size.
@@ -206,7 +212,8 @@ final class MarkdownTheme {
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
-    private(set) var checkboxTextAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var listBulletAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var listNumberAttributes: [NSAttributedString.Key: Any] = [:]
     private var cachedHeadingAttributes: [[NSAttributedString.Key: Any]] = []
