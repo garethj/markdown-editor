@@ -100,6 +100,51 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertFalse(revertedFont?.fontDescriptor.symbolicTraits.contains(.bold) ?? true)
     }
 
+    /// Regression: table column kerning is recomputed for the whole table on
+    /// every keystroke (full AST reparse), and the dirty-region widening step
+    /// already unions in the table's whole-table element — but the actual
+    /// attribute writes go straight to `backingStore`, bypassing
+    /// `self.setAttributes`, so nothing told the layout manager anything
+    /// changed outside the literally-typed characters. That left other rows'
+    /// kerning correctly recomputed in the attribute store but undisplayed
+    /// until some unrelated event (e.g. the cursor leaving the table) forced
+    /// a redraw there. `applyMarkdownStyling` must call
+    /// `invalidateDisplay(forCharacterRange:)` for the full widened range so
+    /// the layout manager redisplays every row whose kerning could have
+    /// changed — not `self.edited(.editedAttributes, ...)`, which was tried
+    /// first and reports through the same channel NSTextView listens on to
+    /// move the selection after an edit, moving the cursor to the end of the
+    /// widened range (i.e. past the whole table) on every keystroke inside
+    /// one.
+    final class RecordingLayoutManager: NSLayoutManager {
+        var recordedRanges: [NSRange] = []
+        override func invalidateDisplay(forCharacterRange charRange: NSRange) {
+            recordedRanges.append(charRange)
+            super.invalidateDisplay(forCharacterRange: charRange)
+        }
+    }
+
+    func testEditingOneTableRowNotifiesLayoutManagerAboutOtherRowsKernRange() {
+        let source = "| Name | Info |\n| --- | --- |\n| Alice | Hi |\n| Bo | Hi |\n"
+        let storage = MarkdownTextStorage()
+        let lm = RecordingLayoutManager()
+        storage.addLayoutManager(lm)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+        lm.recordedRanges.removeAll()
+
+        // Widen "Bo" to "Bobbington" — column 0's max width grows past
+        // "Alice" (5 chars), which means "Alice"'s own kern must increase to
+        // keep the column aligned, even though the edit itself is scoped to
+        // a different, later line.
+        let boRange = (storage.string as NSString).range(of: "Bo |")
+        storage.replaceCharacters(in: NSRange(location: boRange.location + 2, length: 0), with: "bbington")
+
+        let aliceIdx = (storage.string as NSString).range(of: "Alice").location
+        let notifiedAboutAlice = lm.recordedRanges.contains { NSLocationInRange(aliceIdx, $0) }
+        XCTAssertTrue(notifiedAboutAlice,
+                      "layout manager must be notified about other rows whose kerning changed")
+    }
+
     private func markerColor(in storage: MarkdownTextStorage, lineIndex: Int) -> NSColor? {
         let lines = storage.string.components(separatedBy: "\n")
         guard lineIndex < lines.count else { return nil }

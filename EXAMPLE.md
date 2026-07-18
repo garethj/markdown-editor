@@ -90,7 +90,7 @@ Click a checkbox to toggle it — no need to select the line first:
 
 ## Tables
 
-Pipes and the separator row are hidden; columns stay aligned via kerning computed from each cell's *visual* width (hidden delimiters inside a cell don't count against its width):
+Pipes and the separator row stay visible, colored in the accent color so table structure reads at a glance; columns still align via kerning computed from each cell's *visual* width (hidden delimiters inside a cell don't count against its width):
 
 | Name    | Role      | Status |
 | ------- | --------- | ------ |

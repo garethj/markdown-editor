@@ -127,6 +127,33 @@ final class MarkdownTextStorage: NSTextStorage {
                 container.tableLineRanges = styleMap.tableRegions
             }
         }
+
+        // All the attribute writes above went straight to backingStore, not through
+        // self.setAttributes — so nothing has told the layout manager anything in
+        // effectiveDirtyRange actually changed. That's invisible for the exact
+        // character range the user just typed in (NSTextView already redraws that from
+        // the .editedCharacters edit that triggered this method), but any OTHER part of
+        // effectiveDirtyRange the widening step pulled in (e.g. other rows' table-column
+        // kerning, recomputed because one cell's width changed) would otherwise sit
+        // correctly-styled-but-undisplayed until some unrelated event (cursor leaving the
+        // table) forces a redraw there.
+        //
+        // A prior version of this fix called `self.edited(.editedAttributes, range:
+        // effectiveDirtyRange, changeInLength: 0)` here — technically the idiomatic way to
+        // extend an edit from inside processEditing, but it's *also* the exact channel
+        // NSTextView listens on to sync its selection after an edit, and it left NSTextView
+        // believing effectiveDirtyRange (i.e. the whole table) was *selected*, not just
+        // edited. That's worse than a cursor jump: the next keystroke typed a replacement
+        // for that "selection", deleting the rest of the table — confirmed via a UI test
+        // that types multiple characters in a row after positioning the cursor in a cell
+        // (TableCellFormattingUITests.testTypingInsideTableCellDoesNotMoveCursorPastTable;
+        // a single-keystroke version of that test didn't catch it, since the first
+        // keystroke alone still landed correctly). invalidateDisplay(forCharacterRange:)
+        // forces the redraw without going through that edit-notification/selection-sync
+        // path at all.
+        for lm in layoutManagers {
+            lm.invalidateDisplay(forCharacterRange: effectiveDirtyRange)
+        }
     }
 
     // MARK: - Bare URL detection

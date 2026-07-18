@@ -47,15 +47,31 @@ enum UITestSupport {
             _ = app.textViews["MarkdownEditorTextView"].waitForExistence(timeout: 5)
             return
         }
-        if app.textViews["MarkdownEditorTextView"].waitForExistence(timeout: 5) {
+        // A text view existing isn't enough — macOS window-restoration can
+        // reopen a real, non-empty document from a previous *unclean* app
+        // exit (a force-`kill` rather than a graceful quit persists that
+        // state), and it'll keep reopening on every subsequent launch until
+        // something quits cleanly with no windows open. This was a real
+        // incident: it silently typed test content into a real project file
+        // repeatedly (see CLAUDE.md's UI-suite safety note) because this
+        // check used to just confirm *a* text view existed, not that it was
+        // blank. Verify emptiness before trusting it.
+        let textView = app.textViews["MarkdownEditorTextView"]
+        if textView.waitForExistence(timeout: 5), (textView.value as? String ?? "").isEmpty {
             return
         }
         // Something else is blocking discovery of a blank document window —
-        // e.g. session restoration reopening a previous test's document, or
-        // an unsaved-changes prompt. Dismiss anything modal and force a
-        // fresh document rather than fail outright.
+        // e.g. the restoration case above, or an unsaved-changes prompt.
+        // Dismiss anything modal and force a genuinely fresh document rather
+        // than silently typing test content into whatever's showing.
         if app.sheets.firstMatch.exists { app.sheets.firstMatch.buttons.firstMatch.click() }
         if app.dialogs.firstMatch.exists { app.dialogs.firstMatch.buttons.firstMatch.click() }
+        if textView.exists {
+            // Close it rather than stacking a second window on top — two
+            // windows would make every later textViews["MarkdownEditorTextView"]
+            // query ambiguous.
+            app.typeKey("w", modifierFlags: .command)
+        }
         app.typeKey("n", modifierFlags: .command)
         _ = app.textViews["MarkdownEditorTextView"].waitForExistence(timeout: 5)
     }
@@ -125,6 +141,14 @@ enum SavePanelAutomation {
 /// scroll-to-bottom on every keystroke, blockquote bar rendering a line off)
 /// without attempting pixel-perfect visual-fidelity assertions, which aren't
 /// a good fit for an automated pass/fail gate.
+///
+/// `rect` below is in the screenshot's own **pixel** space (retina-scaled —
+/// e.g. 2x on most current Macs), not points, despite `XCUICoordinate`
+/// offsets elsewhere in this file (e.g. `CheckboxUITests`' click math) being
+/// in points — the two aren't interchangeable. When in doubt for a short
+/// document, an intentionally oversized rect is simplest: `regionDifference`
+/// clamps to the actual image bounds, so passing e.g. 4000x4000 safely
+/// covers a small view without computing its real pixel dimensions.
 enum PixelSample {
     /// Average per-channel color difference (0...1) between the same pixel
     /// region of two screenshots. Near 0 means "looks the same"; a real

@@ -167,6 +167,10 @@ final class MarkdownTheme {
         blockQuoteMarkerAttributes = [.foregroundColor: linkColor]
         tableAttributes = [.font: codeFont]
         tableHeaderAttributes = [.font: codeBoldFont]
+        // Pipes and the separator row stay visible (never hidden) — colored
+        // with the same accent as blockquote markers/links/bullets so table
+        // structure reads at a glance without needing the cursor inside it.
+        tablePipeAttributes = [.foregroundColor: linkColor]
         highlightAttributes = [.backgroundColor: highlightColor]
         // Unchecked boxes use the same accent as bullets/links so an open task
         // reads as a live list item; checked boxes (and their task text, set
@@ -212,6 +216,7 @@ final class MarkdownTheme {
     private(set) var blockQuoteMarkerAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
+    private(set) var tablePipeAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]

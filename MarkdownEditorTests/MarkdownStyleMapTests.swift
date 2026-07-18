@@ -358,7 +358,13 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertGreaterThan(map.tableRegions[0].requiredWidth, 0)
 
         let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
-        let kernElements = map.elements.filter { $0.attributes[.kern] != nil }
+        // Excludes the separator row's own kern elements (covered by
+        // testSeparatorRowPipesAlignWithColumns) so this only asserts on
+        // real-cell kerning, as it always has.
+        let sepLineRange = (source as NSString).range(of: "| --- | --- |")
+        let kernElements = map.elements.filter {
+            $0.attributes[.kern] != nil && NSIntersectionRange($0.fullRange, sepLineRange).length == 0
+        }
         // "Name" (deficit 0, +1 pipe) and "Bo" (deficit 2, +1 pipe) both pad;
         // the last column never pads since there's no trailing pipe to offset.
         let kernValues = kernElements
@@ -381,13 +387,140 @@ final class MarkdownStyleMapTests: XCTestCase {
         let map = MarkdownStyleMap(text: source)
 
         let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+        // Excludes the separator row's own kern elements (covered by
+        // testSeparatorRowPipesAlignWithColumns) so this only asserts on
+        // real-cell kerning, as it always has.
+        let sepLineRange = (source as NSString).range(of: "| --- | --- |")
         let kernValues = map.elements
+            .filter { NSIntersectionRange($0.fullRange, sepLineRange).length == 0 }
             .compactMap { $0.attributes[.kern] as? CGFloat }
             .sorted()
         XCTAssertEqual(kernValues.count, 3)
         XCTAssertEqual(kernValues[0], 1 * charWidth, accuracy: 0.01) // "Name": deficit 0, +1 pipe
         XCTAssertEqual(kernValues[1], 2 * charWidth, accuracy: 0.01) // "_Away_": deficit 2, last column
         XCTAssertEqual(kernValues[2], 3 * charWidth, accuracy: 0.01) // "Bo": deficit 2, +1 pipe
+    }
+
+    /// Pipes and the separator row must never be hidden — no element covering
+    /// them should carry delimiterRanges, unlike inline markers (**, _, etc.)
+    /// which are hidden until the cursor enters their span.
+    func testTablePipesAndSeparatorAreNeverHiddenDelimiters() {
+        let source = "| Name | Info |\n| --- | --- |\n| Bo | Hi |\n"
+        let map = MarkdownStyleMap(text: source)
+
+        XCTAssertTrue(map.allDelimiterRanges.isEmpty,
+                       "table pipes/separator must not be hideable delimiters")
+
+        // Sanity check the source actually contains a separator row and pipes,
+        // so this test would fail if the parse silently dropped the table.
+        XCTAssertTrue(source.contains("---"))
+        XCTAssertEqual(source.filter { $0 == "|" }.count, 9)
+    }
+
+    /// Pipes and the separator row are colored with the accent (same as
+    /// blockquote markers/links/bullets) so table structure reads without
+    /// needing the cursor inside it.
+    func testTablePipesAndSeparatorAreAccentColored() {
+        let source = "| Name | Info |\n| --- | --- |\n| Bo | Hi |\n"
+        let map = MarkdownStyleMap(text: source)
+
+        let accent = MarkdownTheme.shared.linkColor
+        let coloredRanges = map.elements.filter {
+            ($0.attributes[.foregroundColor] as? NSColor) == accent
+        }
+        XCTAssertFalse(coloredRanges.isEmpty)
+
+        // Every colored range's text must be made up of pipe/separator
+        // characters only (|, -, :, spaces) — never real cell content.
+        let allowed = CharacterSet(charactersIn: "|-: \n")
+        for element in coloredRanges {
+            let snippet = text(element.contentRange, in: source)
+            XCTAssertTrue(snippet.unicodeScalars.allSatisfy(allowed.contains),
+                          "unexpected non-pipe/separator text colored: \(snippet)")
+        }
+
+        // The separator row itself must be fully covered by colored ranges.
+        let sepRange = (source as NSString).range(of: "| --- | --- |")
+        guard sepRange.location != NSNotFound else {
+            return XCTFail("separator row not found in source")
+        }
+        let coveredLength = coloredRanges.reduce(0) { sum, el in
+            sum + NSIntersectionRange(el.contentRange, sepRange).length
+        }
+        XCTAssertEqual(coveredLength, sepRange.length)
+    }
+
+    /// Regression: cursor-reveal (updateCursorReveal in
+    /// MarkdownTextView.Coordinator) binary-searches `elements` assuming it's
+    /// sorted by fullRange.location. Table visiting breaks that on its own if
+    /// `elements` isn't explicitly re-sorted afterward: it appends its own
+    /// whole-table/kern/header/pipe-color bookkeeping elements before
+    /// descending into cell content, so a Strong/Emphasis element nested in
+    /// an earlier cell ends up appended (and thus positioned) after
+    /// bookkeeping elements for later cells it actually precedes in the
+    /// document — which silently broke clicking into "**Lead**" revealing
+    /// its delimiters, since the search could look in the wrong place.
+    func testElementsAreSortedByLocationWithNestedFormattingInTable() {
+        let source = "| Name | Role | Status |\n| --- | --- | --- |\n" +
+            "| Alice | Engineer | Active |\n| Charlie | **Lead** | _Away_ |\n"
+        let map = MarkdownStyleMap(text: source)
+
+        let locations = map.elements.map { $0.fullRange.location }
+        XCTAssertEqual(locations, locations.sorted(),
+                       "elements must be sorted by fullRange.location for cursor-reveal's binary search")
+
+        guard let boldEl = map.elements.first(where: { text($0.contentRange, in: source) == "Lead" }) else {
+            return XCTFail("no bold element found for table cell 'Lead'")
+        }
+        XCTAssertEqual(boldEl.delimiterRanges.map { text($0, in: source) }, ["**", "**"])
+    }
+
+    /// The separator row has no AST cell structure of its own, so its
+    /// dash/colon runs must be individually kerned (like real cells) or its
+    /// pipes drift out of alignment with the rest of the table.
+    func testSeparatorRowPipesAlignWithColumns() {
+        let source = "| Name | Info |\n| --- | --- |\n| Alice | Hi |\n"
+        let map = MarkdownStyleMap(text: source)
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+
+        // Column 0: " Name " (6, padding included — real Table.Cell.range
+        // includes its own padding, so the separator's segment must be
+        // compared against that same convention) vs " Alice " (7) -> max 7.
+        // Separator's untrimmed " --- " segment (5) needs deficit 2, +1 for
+        // the inter-column pipe.
+        let sepRowRange = (source as NSString).range(of: "| --- | --- |")
+        let kernInSepRow = map.elements
+            .filter { $0.attributes[.kern] != nil && NSIntersectionRange($0.fullRange, sepRowRange).length > 0 }
+            .sorted { $0.fullRange.location < $1.fullRange.location }
+        guard let firstColumnKern = kernInSepRow.first else {
+            return XCTFail("no kern element found for separator row's first column")
+        }
+        let kernValue = firstColumnKern.attributes[.kern] as? CGFloat
+        XCTAssertEqual(kernValue ?? -1, 3 * charWidth, accuracy: 0.01)
+    }
+
+    /// Regression: widening the separator row (e.g. typing extra dashes)
+    /// must widen the whole column to match, not just leave the separator
+    /// sticking out past real cells that were never re-padded to compensate.
+    func testWideningSeparatorRowPullsRealCellsAlongWithIt() {
+        // Column 0's separator " ------- " (9, padding included) is wider
+        // than either real cell " A " (3) or " x " (3) — the column's max
+        // width must come from the separator, not just real cell content.
+        let source = "| A | B |\n| ------- | --- |\n| x | y |\n"
+        let map = MarkdownStyleMap(text: source)
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+
+        // Cell ranges include their own padding (" A ", not "A"), and kern
+        // lands on the last character of that padded range.
+        let aCellRange = (source as NSString).range(of: " A ")
+        let aKernEl = map.elements.first {
+            $0.attributes[.kern] != nil && NSMaxRange($0.fullRange) == NSMaxRange(aCellRange)
+        }
+        guard let aKernValue = aKernEl?.attributes[.kern] as? CGFloat else {
+            return XCTFail("no kern element found for cell \"A\"")
+        }
+        // max(3, 3, 9) = 9; deficit = 9 - 3 = 6, +1 for the inter-column pipe.
+        XCTAssertEqual(aKernValue, 7 * charWidth, accuracy: 0.01)
     }
 
     func testHeadingsCollectedInDocumentOrderForTOC() {

@@ -95,7 +95,15 @@ final class MarkdownStyleMap {
         let len = (text as NSString).length
         var walker = StyleWalker(converter: conv, textLength: len)
         walker.visit(doc)
-        self.elements = walker.elements
+        // Cursor-reveal (MarkdownTextView.Coordinator.updateCursorReveal) binary-searches
+        // this array assuming it's sorted by fullRange.location. That's usually true from
+        // depth-first AST traversal alone, but table visiting breaks it: it appends its own
+        // bookkeeping elements (kern, header, pipe color) for the whole table before
+        // descending into cell content, so a nested Strong/Emphasis element inside an
+        // earlier cell ends up appended after — and thus positioned after in the array —
+        // elements for later cells it actually precedes in the document. Sorting once here
+        // is cheaper than making every visitor prove it appends in strict document order.
+        self.elements = walker.elements.sorted { $0.fullRange.location < $1.fullRange.location }
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
         self.tableRegions = walker.tableRegions
         self.checkboxes = walker.checkboxes
@@ -578,7 +586,10 @@ private struct StyleWalker: MarkupWalker {
             return
         }
 
-        var delimiterRanges: [NSRange] = []
+        // Pipes and the separator row are always visible (never hidden as
+        // delimiters) — collected here only so they can be colored with the
+        // accent color, not to feed activeSpanRange/glyph-hiding.
+        var pipeRanges: [NSRange] = []
 
         // Collect cell info for column width calculation.
         // visualWidth accounts for hidden inline delimiters (**, _, `, ~~, []())
@@ -590,10 +601,16 @@ private struct StyleWalker: MarkupWalker {
             let columnIndex: Int
         }
         var allCells: [CellInfo] = []
+        // Separator row's own dash/colon runs. Kept in a separate array from
+        // allCells only because they're not "isHeader" cells for the bold-
+        // styling loop below — they still count toward column width (see
+        // maxColumnWidths) and get kerned (see the padding loop) exactly
+        // like real cells.
+        var separatorCells: [CellInfo] = []
 
         let head = table.head
         if let headRange = head.range, let headNS = converter.nsRange(for: headRange) {
-            collectPipeRanges(head, nsRange: headNS, into: &delimiterRanges)
+            collectPipeRanges(head, nsRange: headNS, into: &pipeRanges)
 
             for (colIdx, cell) in head.cells.enumerated() {
                 if let cr = cell.range, let ns = converter.nsRange(for: cr),
@@ -604,18 +621,26 @@ private struct StyleWalker: MarkupWalker {
                 }
             }
 
-            // Separator row: hidden entirely except trailing newline
+            // Separator row (| --- | --- |): visible, colored as an accent row,
+            // not hidden — exclude the trailing newline from the colored range.
+            // head.range ends AT its own trailing "\n" (not past it), so +1 is
+            // needed to land sepStart on the separator's own leading "|".
             let body = table.body
             if let bodyRange = body.range, let bodyNS = converter.nsRange(for: bodyRange) {
-                let sepStart = NSMaxRange(headNS)
+                let sepStart = NSMaxRange(headNS) + 1
                 let sepEnd = bodyNS.location
                 if sepEnd > sepStart + 1 {
-                    delimiterRanges.append(NSRange(location: sepStart, length: sepEnd - sepStart - 1))
+                    let sepRange = NSRange(location: sepStart, length: sepEnd - sepStart - 1)
+                    pipeRanges.append(sepRange)
+                    for (colIdx, segment) in separatorColumnRanges(sepRange, in: converter.fullString).enumerated() {
+                        separatorCells.append(CellInfo(nsRange: segment, visualWidth: segment.length,
+                                                       isHeader: false, columnIndex: colIdx))
+                    }
                 }
 
                 for row in body.rows {
                     if let rowRange = row.range, let rowNS = converter.nsRange(for: rowRange) {
-                        collectPipeRanges(row, nsRange: rowNS, into: &delimiterRanges)
+                        collectPipeRanges(row, nsRange: rowNS, into: &pipeRanges)
 
                         for (colIdx, cell) in row.cells.enumerated() {
                             if let cr = cell.range, let ns = converter.nsRange(for: cr),
@@ -630,9 +655,12 @@ private struct StyleWalker: MarkupWalker {
             }
         }
 
-        // Calculate max visual column width
+        // Calculate max visual column width. The separator's own dash/colon
+        // runs count too — otherwise widening the separator past the real
+        // cells' width doesn't pull the rest of the column along with it,
+        // leaving the separator sticking out unaligned with everything else.
         var maxColumnWidths: [Int: Int] = [:]
-        for cell in allCells {
+        for cell in allCells + separatorCells {
             maxColumnWidths[cell.columnIndex] = max(
                 maxColumnWidths[cell.columnIndex, default: 0], cell.visualWidth)
         }
@@ -641,13 +669,25 @@ private struct StyleWalker: MarkupWalker {
         // Character advancement for monospace font
         let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
 
-        // 1. Whole table: monospace font with pipes + separator hidden
+        // 1. Whole table: monospace font. Pipes and the separator row stay
+        // visible (no delimiterRanges) so table boundaries read at a glance.
         elements.append(StyledElement(
             fullRange: tableNS,
             contentRange: tableNS,
-            delimiterRanges: delimiterRanges,
+            delimiterRanges: [],
             attributes: MarkdownTheme.shared.tableAttributes
         ))
+
+        // 1b. Pipes + separator row: colored with the accent, same as other
+        // structural markers (blockquote ">", list bullets) that stay visible.
+        for range in pipeRanges where range.length > 0 {
+            elements.append(StyledElement(
+                fullRange: range,
+                contentRange: range,
+                delimiterRanges: [],
+                attributes: MarkdownTheme.shared.tablePipeAttributes
+            ))
+        }
 
         // 2. Header cells: bold monospace
         for cell in allCells where cell.isHeader {
@@ -661,7 +701,8 @@ private struct StyleWalker: MarkupWalker {
 
         // 3. Column padding: kern on last character of each cell pads to max visual width.
         //    Also compensates for hidden inter-column pipes (1 charWidth each).
-        for cell in allCells {
+        //    Separator dash-runs are included so its pipes align with the rest of the table.
+        for cell in allCells + separatorCells {
             let maxWidth = maxColumnWidths[cell.columnIndex, default: cell.visualWidth]
             let deficit = maxWidth - cell.visualWidth
             let isLastColumn = cell.columnIndex == columnCount - 1
@@ -705,6 +746,31 @@ private struct StyleWalker: MarkupWalker {
         if rowEnd > cursor {
             pipes.append(NSRange(location: cursor, length: rowEnd - cursor))
         }
+    }
+
+    /// Splits a separator row range (e.g. "| --- | --- |") into per-column
+    /// NSRanges — the raw span between each pair of pipes, padding spaces
+    /// included. There's no AST cell structure for the separator, so this is
+    /// done by scanning for "|" directly. Padding is deliberately kept
+    /// in (not trimmed to the bare dashes) because real `Table.Cell.range`
+    /// values include their own surrounding padding too — trimming only the
+    /// separator's segments would compare its width on a different basis
+    /// than real cells' visualWidth and throw off the deficit math.
+    private func separatorColumnRanges(_ range: NSRange, in text: String) -> [NSRange] {
+        let ns = text as NSString
+        var result: [NSRange] = []
+        var cursor = range.location
+        let end = NSMaxRange(range)
+        while cursor < end {
+            let pipeLoc = ns.range(of: "|", range: NSRange(location: cursor, length: end - cursor)).location
+            let segmentEnd = pipeLoc == NSNotFound ? end : pipeLoc
+            if segmentEnd > cursor {
+                result.append(NSRange(location: cursor, length: segmentEnd - cursor))
+            }
+            guard pipeLoc != NSNotFound else { break }
+            cursor = pipeLoc + 1
+        }
+        return result
     }
 
     /// Counts characters within a node that will be hidden as inline delimiters.

@@ -35,6 +35,7 @@
 		8A0000000000000000000003 /* CheckboxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000003 /* CheckboxUITests.swift */; };
 		8A0000000000000000000004 /* ExternalChangeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000004 /* ExternalChangeUITests.swift */; };
 		8A0000000000000000000005 /* PDFExportUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000005 /* PDFExportUITests.swift */; };
+		8A0000000000000000000006 /* TableCellFormattingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000007 /* TableCellFormattingUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -69,6 +70,7 @@
 		8B0000000000000000000003 /* CheckboxUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckboxUITests.swift; sourceTree = "<group>"; };
 		8B0000000000000000000004 /* ExternalChangeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeUITests.swift; sourceTree = "<group>"; };
 		8B0000000000000000000005 /* PDFExportUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExportUITests.swift; sourceTree = "<group>"; };
+		8B0000000000000000000007 /* TableCellFormattingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableCellFormattingUITests.swift; sourceTree = "<group>"; };
 		8B0000000000000000000006 /* MarkdownEditorUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkdownEditorUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -154,6 +156,7 @@
 				8B0000000000000000000003 /* CheckboxUITests.swift */,
 				8B0000000000000000000004 /* ExternalChangeUITests.swift */,
 				8B0000000000000000000005 /* PDFExportUITests.swift */,
+				8B0000000000000000000007 /* TableCellFormattingUITests.swift */,
 			);
 			path = MarkdownEditorUITests;
 			sourceTree = "<group>";
@@ -344,6 +347,7 @@
 				8A0000000000000000000003 /* CheckboxUITests.swift in Sources */,
 				8A0000000000000000000004 /* ExternalChangeUITests.swift in Sources */,
 				8A0000000000000000000005 /* PDFExportUITests.swift in Sources */,
+				8A0000000000000000000006 /* TableCellFormattingUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
