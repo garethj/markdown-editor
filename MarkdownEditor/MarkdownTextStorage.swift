@@ -33,6 +33,24 @@ final class MarkdownTextStorage: NSTextStorage {
         if let range = pendingDisplayInvalidationRange {
             pendingDisplayInvalidationRange = nil
             for lm in layoutManagers {
+                // invalidateLayout must run before invalidateDisplay, not
+                // just alongside it. All the attribute writes in
+                // applyMarkdownStyling go straight to backingStore (see the
+                // comment above), so NSLayoutManager never got the normal
+                // edited()-driven notification that anything in `range`
+                // changed — its cached line fragment geometry can still
+                // reflect the *old* font. If a character elsewhere in
+                // `range` just grew into a heading font (e.g. finishing a
+                // Setext heading by typing its "===" underline, which
+                // changes the *text line above* the actual edit),
+                // invalidateDisplay alone only marks a redraw using
+                // whatever rect is currently cached — still the old,
+                // shorter line height — so the taller glyph's top gets
+                // clipped by that stale dirty rect on screen.
+                // invalidateLayout forces the geometry to be recomputed
+                // first, so the subsequent invalidateDisplay call marks the
+                // *correct*, already-regrown rect.
+                lm.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
                 lm.invalidateDisplay(forCharacterRange: range)
             }
         }

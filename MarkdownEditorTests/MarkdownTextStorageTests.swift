@@ -163,9 +163,14 @@ final class MarkdownTextStorageTests: XCTestCase {
     /// one.
     final class RecordingLayoutManager: NSLayoutManager {
         var recordedRanges: [NSRange] = []
+        var recordedLayoutInvalidations: [NSRange] = []
         override func invalidateDisplay(forCharacterRange charRange: NSRange) {
             recordedRanges.append(charRange)
             super.invalidateDisplay(forCharacterRange: charRange)
+        }
+        override func invalidateLayout(forCharacterRange charRange: NSRange, actualCharacterRange: NSRangePointer?) {
+            recordedLayoutInvalidations.append(charRange)
+            super.invalidateLayout(forCharacterRange: charRange, actualCharacterRange: actualCharacterRange)
         }
     }
 
@@ -188,6 +193,37 @@ final class MarkdownTextStorageTests: XCTestCase {
         let notifiedAboutAlice = lm.recordedRanges.contains { NSLocationInRange(aliceIdx, $0) }
         XCTAssertTrue(notifiedAboutAlice,
                       "layout manager must be notified about other rows whose kerning changed")
+    }
+
+    /// Regression: typing "Heading" then "\n===" finishes a Setext heading,
+    /// which grows the font on the *"Heading" line* — a line the literal
+    /// edit (typing "===" on the line below it) never directly touches, so
+    /// NSLayoutManager's cached line-fragment geometry for it stays sized
+    /// for the old, smaller font unless something explicitly tells the
+    /// layout manager to recompute. All the attribute writes in
+    /// applyMarkdownStyling go straight to backingStore (bypassing
+    /// self.setAttributes), so nothing tells it via the normal edited()
+    /// channel either — invalidateDisplay(forCharacterRange:) alone only
+    /// requests a *redraw*, not a *re-layout*, so it'd mark the old
+    /// (still-cached, still-short) rect dirty and the taller glyph's top
+    /// gets clipped by that stale region on screen. invalidateLayout must
+    /// run first so the geometry is fresh by the time invalidateDisplay
+    /// computes what to redraw.
+    func testFinishingSetextHeadingInvalidatesLayoutForTextLineAbove() {
+        let storage = MarkdownTextStorage()
+        let lm = RecordingLayoutManager()
+        storage.addLayoutManager(lm)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "Heading")
+        lm.recordedLayoutInvalidations.removeAll()
+
+        storage.replaceCharacters(in: NSRange(location: storage.length, length: 0), with: "\n===")
+
+        let headingLineStart = 0 // "Heading" is the very first character
+        let layoutInvalidatedForHeadingLine = lm.recordedLayoutInvalidations.contains {
+            NSLocationInRange(headingLineStart, $0)
+        }
+        XCTAssertTrue(layoutInvalidatedForHeadingLine,
+                      "layout manager must recompute geometry for the heading text line, not just redraw it")
     }
 
     /// Regression: two backspaces in a row at the end of any multi-line
