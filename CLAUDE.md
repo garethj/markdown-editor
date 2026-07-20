@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git: commit freely, never push without being asked
+
+This repo's `origin` remote is a **public** GitHub repository (`github.com/garethj/markdown-editor`). Commit locally as normal whenever the user asks for a commit — that's just local history, low-stakes. But **never run `git push` unless the user's current message explicitly asks for it**, even if a recent prior message in the same session asked for a push — that authorization doesn't carry forward to later commits, since a push makes the commit (and anything it contains) publicly visible immediately. If unsure whether "commit this" also means "and push it," ask, or default to commit-only and say so.
+
 ## Build
 
 ```bash
