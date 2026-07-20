@@ -75,6 +75,11 @@ Bullet markers stay exactly as written in the source (`-`, `*`, or `+`), just re
     * Nested two levels, using `*`
       + Nested three levels, using `+`
 
+A list item's text wraps at the window edge like any other paragraph, but the wrapped line gets a hanging indent so it lines up under the first line's text rather than falling back to the left margin — narrow the window against this next item to see it, and notice the nested item below wraps to a deeper indent than the top-level one does:
+
+- This top-level item has enough text in it that narrowing the window will make it wrap onto a second line, which should land indented under "This," not back at the left edge.
+  - This nested item is deliberately just as long, so its own wrapped line should indent one level deeper than the top-level item's wrapped line above it.
+
 ### Ordered
 
 1. First item

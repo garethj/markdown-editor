@@ -286,4 +286,22 @@ final class MarkdownTheme {
         para.paragraphSpacing = 4
         return para
     }
+
+    /// Hanging indent for a list item's wrapped continuation line-fragments,
+    /// so a bullet's text that wraps at window width lines up under the
+    /// first line's content instead of falling back to the left margin.
+    /// `headIndent` is the measured pixel width of one specific item's own
+    /// marker/indentation prefix (varies with nesting depth and marker
+    /// width — "10." is wider than "-"), so unlike the other paragraph
+    /// styles this can't be pre-cached; it's built fresh per list item.
+    /// `firstLineHeadIndent` stays 0 because the first line's visual indent
+    /// already comes from real leading-space/marker characters in the
+    /// source text, not from a paragraph-style inset.
+    func listItemParagraphStyle(headIndent: CGFloat) -> NSParagraphStyle {
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = 3
+        para.paragraphSpacing = 4
+        para.headIndent = headIndent
+        return para
+    }
 }

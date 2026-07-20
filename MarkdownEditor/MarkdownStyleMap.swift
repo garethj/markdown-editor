@@ -562,6 +562,13 @@ private struct StyleWalker: MarkupWalker {
                     }
                 }
             }
+            if let bracketRange = checkboxBracketRange(in: itemNS) {
+                appendListContinuationIndent(
+                    lineStartSearchFrom: itemNS.location,
+                    prefixEnd: NSMaxRange(bracketRange),
+                    checkboxRange: bracketRange
+                )
+            }
             return
         }
 
@@ -572,6 +579,78 @@ private struct StyleWalker: MarkupWalker {
             attributes: isOrdered
                 ? MarkdownTheme.shared.listNumberAttributes
                 : MarkdownTheme.shared.listBulletAttributes
+        ))
+        appendListContinuationIndent(
+            lineStartSearchFrom: itemNS.location,
+            prefixEnd: NSMaxRange(markerRange),
+            checkboxRange: nil
+        )
+    }
+
+    /// Gives a list item's wrapped continuation line-fragments (its content
+    /// wrapping at window width, not a literal "\n" in the source) a hanging
+    /// indent that lines up with the text after the marker/checkbox, instead
+    /// of falling back to the paragraph's left margin. Scoped to just this
+    /// item's own first physical source line — a source-level embedded "\n"
+    /// (a lazy-continuation raw line) starts a new NSAttributedString
+    /// paragraph of its own and isn't covered here.
+    private mutating func appendListContinuationIndent(
+        lineStartSearchFrom itemStart: Int, prefixEnd: Int, checkboxRange: NSRange?
+    ) {
+        let text = converter.fullString as NSString
+        guard prefixEnd <= textLength else { return }
+
+        let backMatch = text.range(of: "\n", options: .backwards, range: NSRange(location: 0, length: itemStart))
+        let lineStart = backMatch.location == NSNotFound ? 0 : backMatch.location + 1
+
+        let forwardMatch = text.range(of: "\n", range: NSRange(location: itemStart, length: textLength - itemStart))
+        let lineEnd = forwardMatch.location == NSNotFound ? textLength : forwardMatch.location
+        guard lineEnd > lineStart else { return }
+
+        var contentStart = prefixEnd
+        while contentStart < lineEnd {
+            let ch = text.character(at: contentStart)
+            guard ch == 0x20 || ch == 0x09 else { break }
+            contentStart += 1
+        }
+        guard contentStart > lineStart else { return }
+
+        // Measure the actual prefix's rendered width so nesting depth and
+        // marker width ("10." vs "-") both produce a correctly-aligned
+        // indent, rather than guessing from character counts.
+        let measured = NSMutableAttributedString()
+        if let checkboxRange {
+            // The bullet/number marker before a checkbox is hidden entirely
+            // (see the checkbox branch above), so it contributes zero visual
+            // width — only the leading indentation and the checkbox bracket
+            // itself (in its bold monospace font) count.
+            measured.append(NSAttributedString(
+                string: text.substring(with: NSRange(location: lineStart, length: itemStart - lineStart)),
+                attributes: [.font: MarkdownTheme.shared.defaultFont]))
+            measured.append(NSAttributedString(
+                string: text.substring(with: checkboxRange),
+                attributes: [.font: MarkdownTheme.shared.codeBoldFont]))
+            let bracketEnd = NSMaxRange(checkboxRange)
+            if contentStart > bracketEnd {
+                measured.append(NSAttributedString(
+                    string: text.substring(with: NSRange(location: bracketEnd, length: contentStart - bracketEnd)),
+                    attributes: [.font: MarkdownTheme.shared.defaultFont]))
+            }
+        } else {
+            measured.append(NSAttributedString(
+                string: text.substring(with: NSRange(location: lineStart, length: contentStart - lineStart)),
+                attributes: [.font: MarkdownTheme.shared.defaultFont]))
+        }
+
+        let indentWidth = measured.size().width
+        guard indentWidth > 0 else { return }
+
+        let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
+        elements.append(StyledElement(
+            fullRange: lineRange,
+            contentRange: lineRange,
+            delimiterRanges: [],
+            attributes: [.paragraphStyle: MarkdownTheme.shared.listItemParagraphStyle(headIndent: indentWidth)]
         ))
     }
 

@@ -484,6 +484,80 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(bulletElements.count, 1)
     }
 
+    // MARK: - List continuation indent (hanging indent for wrapped lines)
+
+    private func headIndent(in map: MarkdownStyleMap) -> CGFloat? {
+        for element in map.elements {
+            if let para = element.attributes[.paragraphStyle] as? NSParagraphStyle, para.headIndent > 0 {
+                return para.headIndent
+            }
+        }
+        return nil
+    }
+
+    /// A wrapped continuation line-fragment (window too narrow for the whole
+    /// item) should line up under the first line's text, not fall back to
+    /// the paragraph's left margin — this is what headIndent controls.
+    /// firstLineHeadIndent must stay 0 since the first line's own indent
+    /// already comes from real marker/space characters in the source.
+    func testTopLevelBulletItemGetsPositiveHeadIndentWithZeroFirstLineIndent() {
+        let source = "- Some list item text\n"
+        let map = MarkdownStyleMap(text: source)
+        guard let element = map.elements.first(where: {
+            ($0.attributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0 > 0
+        }) else {
+            return XCTFail("no list-item paragraph-style element found")
+        }
+        let para = element.attributes[.paragraphStyle] as! NSParagraphStyle
+        XCTAssertGreaterThan(para.headIndent, 0)
+        XCTAssertEqual(para.firstLineHeadIndent, 0)
+        // Covers the whole physical line, not just the "- " prefix, since
+        // NSParagraphStyle's headIndent/firstLineHeadIndent are read per
+        // paragraph (line), not per sub-range.
+        XCTAssertEqual(text(element.fullRange, in: source), "- Some list item text")
+    }
+
+    /// A nested item's indent must be measurably larger than its parent's —
+    /// otherwise a wrapped nested line would visually align with the parent
+    /// list's text instead of its own.
+    func testNestedListItemHasLargerHeadIndentThanTopLevel() {
+        let topSource = "- top\n"
+        let nestedSource = "- top\n  - nested\n"
+        let topIndent = headIndent(in: MarkdownStyleMap(text: topSource))
+        let nestedMap = MarkdownStyleMap(text: nestedSource)
+        // The nested item's own indent is the larger of the two headIndent
+        // values present (the top-level "- top" line also has one).
+        let allIndents = nestedMap.elements.compactMap { ($0.attributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent }.filter { $0 > 0 }
+        guard let topIndent, let maxNestedIndent = allIndents.max() else {
+            return XCTFail("expected headIndent values for both items")
+        }
+        XCTAssertGreaterThan(maxNestedIndent, topIndent)
+    }
+
+    /// A wider ordered-list marker ("10." vs "1.") must produce a wider
+    /// measured indent — the indent is based on rendered prefix width, not
+    /// a fixed guess, so it should track the marker's actual character count.
+    func testOrderedListWiderMarkerProducesLargerHeadIndent() {
+        let narrowIndent = headIndent(in: MarkdownStyleMap(text: "1. item\n"))
+        let wideIndent = headIndent(in: MarkdownStyleMap(text: "10. item\n"))
+        guard let narrowIndent, let wideIndent else {
+            return XCTFail("expected headIndent values for both ordered items")
+        }
+        XCTAssertGreaterThan(wideIndent, narrowIndent)
+    }
+
+    /// A checkbox item's own bullet/number marker is hidden entirely (see
+    /// the checkbox glyph-hiding element above), so the continuation indent
+    /// must still come out positive from just the leading indentation plus
+    /// the visible "[ ]" bracket — not silently skipped because the marker
+    /// itself contributes no width.
+    func testCheckboxListItemGetsPositiveHeadIndent() {
+        let source = "- [ ] Some task\n"
+        let indent = headIndent(in: MarkdownStyleMap(text: source))
+        XCTAssertNotNil(indent)
+        XCTAssertGreaterThan(indent ?? 0, 0)
+    }
+
     // MARK: - Tables
 
     func testTableColumnPaddingKernsShortCells() {
@@ -667,5 +741,22 @@ final class MarkdownStyleMapTests: XCTestCase {
         let map = MarkdownStyleMap(text: source)
         XCTAssertEqual(map.headings.map(\.title), ["One", "Two", "Three"])
         XCTAssertEqual(map.headings.map(\.level), [1, 2, 3])
+    }
+
+    /// CommonMark only lets a list marker interrupt an in-progress paragraph
+    /// when it's indented 0–3 spaces past the parent item's own content
+    /// column — indent it further (here, 8 spaces under a 2-space-wide "* "
+    /// marker, 6 past the threshold) and it's swallowed as plain lazy-
+    /// continuation text of the *previous* line's paragraph instead of
+    /// starting a nested list. This isn't specific to this app (any
+    /// CommonMark-compliant renderer does the same); it exists so a future
+    /// change doesn't "fix" the missing color/indent by trying to make
+    /// over-indented lines act like list items, which would diverge from
+    /// the spec.
+    func testOverIndentedBulletIsNotParsedAsNestedListItem() {
+        let source = "* Parent item text\n        * Eight spaces in — too far to interrupt the paragraph\n"
+        let map = MarkdownStyleMap(text: source)
+        let bulletMarkers = map.elements.filter { text($0.fullRange, in: source) == "*" }
+        XCTAssertEqual(bulletMarkers.count, 1, "only the parent's own marker should be recognized as a list-bullet element")
     }
 }
