@@ -266,6 +266,69 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertEqual(storage.string, "")
     }
 
+    /// Regression: selecting all text (including a table) and deleting it in
+    /// one edit used to crash — but only later, when something completely
+    /// unrelated to the edit (an animated window-zoom resize, triggered by
+    /// double-clicking the title bar) forced a redraw. Confirmed via a real
+    /// crash report: NSMoveHelper's animation timer fired a redraw whose
+    /// call stack traces straight into MarkdownTextStorage.attributes(at:)
+    /// with an out-of-bounds index — nothing in that stack belongs to our
+    /// own edit/invalidation code.
+    ///
+    /// applyMarkdownStyling()'s empty-document early-return path skipped two
+    /// things every other edit does: (1) it left
+    /// MarkdownTextContainer.tableLineRanges pointing at character ranges
+    /// from whatever document existed a moment ago — lineFragmentRect(forProposedRect:at:...)
+    /// binary-searches that array on every layout pass, including ones
+    /// triggered by something that has nothing to do with us; (2) it never
+    /// set pendingDisplayInvalidationRange, so none of the extra
+    /// invalidateLayout/invalidateDisplay cleanup that runs after every
+    /// other edit ran for this one either — the transition to empty relied
+    /// entirely on the standard edited()-driven notification, which this
+    /// crash shows isn't sufficient once an unrelated animation is racing
+    /// against it in the real (asynchronous, CVDisplayLink-driven) app.
+    func testSelectAllDeleteThenSimulatedWindowResizeDoesNotCrash() {
+        let storage = MarkdownTextStorage()
+        let lm = NSLayoutManager()
+        let delegate = MarkdownLayoutManagerDelegate()
+        lm.delegate = delegate
+        storage.addLayoutManager(lm)
+        let container = MarkdownTextContainer()
+        container.proseWidth = 600
+        lm.addTextContainer(container)
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
+
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "# Heading\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n")
+        XCTAssertEqual(container.tableLineRanges.count, 1)
+
+        textView.setSelectedRange(NSRange(location: 0, length: storage.length))
+        textView.deleteBackward(nil)
+        XCTAssertEqual(storage.length, 0)
+        XCTAssertEqual(container.tableLineRanges.count, 0, "stale table ranges must not survive the document becoming empty")
+
+        // Simulate the animated resize itself — each width change fires
+        // MarkdownTextContainer.proseWidth's didSet, then force a redraw the
+        // same way the real crash's display-link callback did.
+        for width in stride(from: 600, through: 900, by: 50) {
+            container.proseWidth = CGFloat(width)
+            textView.display()
+        }
+    }
+
+    /// Companion to the above, at the narrowest possible scope: even without
+    /// reproducing the animation timing, MarkdownTextStorage's own override
+    /// must never let an out-of-bounds attributes(at:) query crash the app —
+    /// AppKit's TextKit internals are the caller here, not our code, and the
+    /// crash above proves they can race ahead of our invalidation under real
+    /// conditions a synchronous unit test can't fully replicate.
+    func testAttributesAtOutOfBoundsLocationDoesNotCrash() {
+        let storage = makeStorage("hello")
+        XCTAssertTrue(attributes(at: 100, in: storage).isEmpty)
+        XCTAssertTrue(attributes(at: -1, in: storage).isEmpty)
+        XCTAssertTrue(attributes(at: storage.length, in: storage).isEmpty,
+                      "location == length is one past the last valid index")
+    }
+
     private func markerColor(in storage: MarkdownTextStorage, lineIndex: Int) -> NSColor? {
         let lines = storage.string.components(separatedBy: "\n")
         guard lineIndex < lines.count else { return nil }

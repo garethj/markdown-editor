@@ -10,8 +10,26 @@ final class MarkdownTextStorage: NSTextStorage {
         backingStore.string
     }
 
+    // NSAttributedString.attributes(at:effectiveRange:) throws (crashes) for
+    // an out-of-bounds location, and callers of this override are AppKit's
+    // own TextKit internals, not our code — we don't control every timing
+    // window in which NSLayoutManager might ask. Confirmed happening for
+    // real: selecting all text (including a table) and deleting it, then
+    // immediately double-clicking the title bar to trigger an animated
+    // window-zoom resize, crashed here — an in-flight CVDisplayLink-driven
+    // redraw asked for attributes at an index that stopped being valid the
+    // moment the delete landed, from a call stack with nothing to do with
+    // our own edit/invalidation code (NSMoveHelper's animation timer racing
+    // the edit). The real fixes are proper invalidation on that edit path
+    // (see pendingDisplayInvalidationRange) — this guard is a last-resort
+    // backstop so a similar race degrades to empty attributes instead of
+    // taking the whole app down.
     override func attributes(at location: Int, effectiveRange range: NSRangePointer?) -> [NSAttributedString.Key: Any] {
-        backingStore.attributes(at: location, effectiveRange: range)
+        guard location >= 0, location < backingStore.length else {
+            range?.pointee = NSRange(location: max(0, min(location, backingStore.length)), length: 0)
+            return [:]
+        }
+        return backingStore.attributes(at: location, effectiveRange: range)
     }
 
     override func replaceCharacters(in range: NSRange, with str: String) {
@@ -89,7 +107,29 @@ final class MarkdownTextStorage: NSTextStorage {
             lastStyleMap = nil
             for lm in layoutManagers {
                 (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: nil)
+                // Regression: this used to be skipped here, unlike the
+                // non-empty path below — leaving tableLineRanges pointing at
+                // character ranges from whatever document existed a moment
+                // ago. MarkdownTextContainer.lineFragmentRect(forProposedRect:at:...)
+                // binary-searches that array by character index on every
+                // layout pass, including ones triggered by something
+                // completely unrelated to us (e.g. an animated window-zoom
+                // redraw) — a real crash was confirmed selecting all text in
+                // a document containing a table, deleting it, then
+                // double-clicking the title bar to zoom the window.
+                if let container = lm.textContainers.first as? MarkdownTextContainer {
+                    container.tableLineRanges = []
+                }
             }
+            // Also skipped here before, unlike every other edit (see
+            // replaceCharacters) — going to empty relied entirely on the
+            // standard edited()-driven glyph invalidation from
+            // super.processEditing(). A zero-length range still gets
+            // NSLayoutManager to reconcile its cached layout/glyph state
+            // against the now-empty backingStore before anything else
+            // (e.g. that same animated window-zoom redraw) tries to draw
+            // against stale internal indices.
+            pendingDisplayInvalidationRange = NSRange(location: 0, length: 0)
             return
         }
 
