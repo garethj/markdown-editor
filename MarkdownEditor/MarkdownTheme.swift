@@ -182,9 +182,16 @@ final class MarkdownTheme {
         // The bullet glyph (●/○/◆/◇) renders large relative to body text at
         // full point size, so it gets a smaller dedicated font; ordered-list
         // numbers are real digits and stay legible at the normal text size.
+        // Sitting on the same baseline as the surrounding text leaves the
+        // bullet looking bottom-anchored, since its much shorter cap height
+        // is measured from the same baseline as the taller body text — nudge
+        // it up by half the cap-height difference so its visual center lands
+        // near the body text's, rather than near the baseline.
+        let bulletFont = NSFont.systemFont(ofSize: baseSize * 0.62)
         listBulletAttributes = [
             .foregroundColor: linkColor,
-            .font: NSFont.systemFont(ofSize: baseSize * 0.62),
+            .font: bulletFont,
+            .baselineOffset: (defaultFont.capHeight - bulletFont.capHeight) / 2,
         ]
         listNumberAttributes = [.foregroundColor: linkColor]
 
