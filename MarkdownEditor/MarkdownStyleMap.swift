@@ -142,11 +142,29 @@ private struct StyleWalker: MarkupWalker {
         let delimiterRange: NSRange
         let contentRange: NSRange
         var elementRange = nsRange
+        var closingSequenceRange: NSRange?
         if isATX {
             let delimiterLength = min(level + 1, nsRange.length) // "## " = level + space
             delimiterRange = NSRange(location: nsRange.location, length: delimiterLength)
             contentRange = NSRange(location: nsRange.location + delimiterLength,
                                    length: max(0, nsRange.length - delimiterLength))
+            // ATX headings support an optional closing sequence of #s (e.g.
+            // "# Heading #"), which CommonMark requires to be preceded by a
+            // space and followed only by spaces/tabs to the end of the line.
+            // cmark strips that closing sequence — and any trailing
+            // whitespace before it — from heading.range's own upper bound,
+            // the same way it strips the leading "# " from the lower bound,
+            // so nsRange already ends exactly at the real content. Whatever
+            // characters remain between there and the end of the physical
+            // line (if any) can only be that closing sequence, so hide it
+            // too, matching the leading delimiter's treatment — otherwise it
+            // shows up as plain, unstyled, un-hidden trailing text.
+            let lineRange = text.lineRange(for: NSRange(location: nsRange.location, length: 0))
+            let lineEnd = Self.lineEndExcludingTerminator(text, lineRange)
+            if lineEnd > NSMaxRange(nsRange) {
+                closingSequenceRange = NSRange(location: NSMaxRange(nsRange), length: lineEnd - NSMaxRange(nsRange))
+                elementRange = NSRange(location: nsRange.location, length: lineEnd - nsRange.location)
+            }
         } else {
             // Setext heading: CommonMark allows "one or more lines of text" as
             // content before the underline, not just a single line — e.g.
@@ -206,7 +224,7 @@ private struct StyleWalker: MarkupWalker {
         elements.append(StyledElement(
             fullRange: elementRange,
             contentRange: contentRange,
-            delimiterRanges: isATX ? [delimiterRange] : [],
+            delimiterRanges: isATX ? [delimiterRange] + (closingSequenceRange.map { [$0] } ?? []) : [],
             attributes: isATX
                 ? MarkdownTheme.shared.headingAttributes(level: level)
                 : MarkdownTheme.shared.headingSetextContentAttributes(level: level, isFirstLine: true)
@@ -269,6 +287,22 @@ private struct StyleWalker: MarkupWalker {
             i += 1
         }
         return sawChar
+    }
+
+    /// `lineRange` (an `NSString.lineRange` result) includes the trailing
+    /// line terminator ("\n", "\r\n", or "\r") — this returns the index just
+    /// before it, i.e. the end of the line's actual content.
+    private static func lineEndExcludingTerminator(_ text: NSString, _ lineRange: NSRange) -> Int {
+        var end = NSMaxRange(lineRange)
+        guard end > lineRange.location else { return end }
+        let last = text.character(at: end - 1)
+        if last == 10 { // "\n"
+            end -= 1
+            if end > lineRange.location, text.character(at: end - 1) == 13 { end -= 1 } // "\r\n"
+        } else if last == 13 { // "\r"
+            end -= 1
+        }
+        return end
     }
 
     // MARK: - Bold

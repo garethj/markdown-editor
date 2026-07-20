@@ -231,6 +231,39 @@ final class MarkdownStyleMapTests: XCTestCase {
         _ = italicEl
     }
 
+    /// Regression: an ATX heading's optional closing sequence of #s (e.g.
+    /// "# Heading #", valid CommonMark) used to render as plain, un-hidden,
+    /// unstyled trailing text — swift-markdown's heading.range already
+    /// excludes it (the same way it excludes trailing whitespace before it),
+    /// so MarkdownStyleMap never even saw it as part of the heading, let
+    /// alone hid it the way the leading "# " is hidden.
+    func testATXHeadingClosingSequenceIsHidden() {
+        let source = "# Heading using #\nbody"
+        let map = MarkdownStyleMap(text: source)
+        XCTAssertEqual(map.headings.count, 1)
+        XCTAssertEqual(map.headings[0].title, "Heading using")
+
+        guard let el = map.elements.first(where: { text($0.contentRange, in: source) == "Heading using" }) else {
+            return XCTFail("no ATX heading element found")
+        }
+        XCTAssertEqual(el.delimiterRanges.map { text($0, in: source) }, ["# ", " #"])
+        // The closing sequence must not leak into the next line's styling.
+        XCTAssertFalse(text(el.fullRange, in: source).contains("body"))
+    }
+
+    /// A closing sequence is only valid when the rest of the line, after the
+    /// #s, is nothing but whitespace — trailing text that merely starts with
+    /// "#" must stay part of the visible heading content.
+    func testATXHeadingTrailingHashWithoutValidClosingSequenceStaysVisible() {
+        let source = "# Heading #not-a-closer\nbody"
+        let map = MarkdownStyleMap(text: source)
+        XCTAssertEqual(map.headings[0].title, "Heading #not-a-closer")
+        guard let el = map.elements.first(where: { text($0.contentRange, in: source) == "Heading #not-a-closer" }) else {
+            return XCTFail("no ATX heading element found")
+        }
+        XCTAssertEqual(el.delimiterRanges.map { text($0, in: source) }, ["# "])
+    }
+
     /// Setext headings ("Text\n===") show the underline in the accent color
     /// rather than hiding it. Unlike ATX's "#" (pure noise once font size
     /// signals the level), "==="/"---" is the only thing distinguishing an H1
