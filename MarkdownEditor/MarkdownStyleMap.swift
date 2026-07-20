@@ -481,13 +481,17 @@ private struct StyleWalker: MarkupWalker {
     }
 
     /// Cycles unordered-bullet shape by nesting depth: filled circle, hollow
-    /// circle, filled diamond, hollow diamond.
+    /// circle, filled diamond, hollow diamond. Uses the diamond-suit glyphs
+    /// (♦/♢) rather than the geometric-shapes ones (◆/◇) — the latter have no
+    /// glyph in `.AppleSystemUIFont` at the bullet's small point size, so
+    /// `MarkdownLayoutManagerDelegate`'s glyph substitution silently no-ops
+    /// and the literal source marker character ("-") draws instead.
     private static func bulletCharacter(forDepth depth: Int) -> Character {
         switch depth {
         case 1: return "●"
         case 2: return "○"
-        case 3: return "◆"
-        default: return "◇"
+        case 3: return "♦"
+        default: return "♢"
         }
     }
 

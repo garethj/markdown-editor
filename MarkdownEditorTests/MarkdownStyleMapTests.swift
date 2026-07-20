@@ -320,11 +320,24 @@ final class MarkdownStyleMapTests: XCTestCase {
     // MARK: - List bullet depth glyphs
 
     func testUnorderedBulletGlyphCyclesByDepth() {
-        let source = "- top\n  - nested\n"
+        let source = "- top\n  - nested\n    - deeper\n      - deepest\n"
         let map = MarkdownStyleMap(text: source)
-        XCTAssertEqual(map.listMarkerGlyphOverrides.count, 2)
+        XCTAssertEqual(map.listMarkerGlyphOverrides.count, 4)
         XCTAssertEqual(map.listMarkerGlyphOverrides[0].character, "\u{25CF}") // ●
         XCTAssertEqual(map.listMarkerGlyphOverrides[1].character, "\u{25CB}") // ○
+        // Depths 3+ must resolve to glyphs .AppleSystemUIFont actually has at
+        // the bullet's small point size — the geometric-shapes diamonds
+        // (◆ U+25C6 / ◇ U+25C7) have none there, so the layout-manager glyph
+        // substitution silently no-ops and the literal "-" source marker
+        // draws instead. This regressed once already; assert the
+        // diamond-suit glyphs (which do resolve) explicitly rather than just
+        // asserting "not equal to the source marker".
+        XCTAssertEqual(map.listMarkerGlyphOverrides[2].character, "\u{2666}") // ♦
+        XCTAssertEqual(map.listMarkerGlyphOverrides[3].character, "\u{2662}") // ♢
+        for override in map.listMarkerGlyphOverrides {
+            XCTAssertNotEqual(override.character, "\u{25C6}", "◆ has no glyph in .AppleSystemUIFont at the bullet size")
+            XCTAssertNotEqual(override.character, "\u{25C7}", "◇ has no glyph in .AppleSystemUIFont at the bullet size")
+        }
     }
 
     /// Nested inline formatting inside a list item's text must not disturb
