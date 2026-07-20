@@ -148,20 +148,42 @@ private struct StyleWalker: MarkupWalker {
             contentRange = NSRange(location: nsRange.location + delimiterLength,
                                    length: max(0, nsRange.length - delimiterLength))
         } else {
-            // Setext heading: nsRange spans both the text line and its "===" /
-            // "---" underline. When no blank line separates the heading from
-            // whatever follows, swift-markdown's reported nsRange can extend
-            // past the underline into that next block — clamp everything to
-            // the underline's own line rather than trusting nsRange's upper
-            // bound, otherwise the next paragraph gets swallowed into the
-            // heading's styling.
-            let textLineRange = text.lineRange(for: NSRange(location: nsRange.location, length: 0))
-            let contentEnd = min(NSMaxRange(textLineRange), NSMaxRange(nsRange))
-            contentRange = NSRange(location: nsRange.location, length: contentEnd - nsRange.location)
-            let underlineLineRange = text.lineRange(for: NSRange(location: contentEnd, length: 0))
-            let delimiterEnd = min(NSMaxRange(underlineLineRange), NSMaxRange(nsRange))
-            delimiterRange = NSRange(location: contentEnd, length: max(0, delimiterEnd - contentEnd))
-            elementRange = NSRange(location: nsRange.location, length: delimiterEnd - nsRange.location)
+            // Setext heading: CommonMark allows "one or more lines of text" as
+            // content before the underline, not just a single line — e.g.
+            // "Test\nHeading\n---" (no blank line before it) makes "Test" AND
+            // "Heading" both part of the heading's content, with "---" as the
+            // underline. Assuming content was always exactly the first line
+            // used to mistake a second content line for the underline itself
+            // (recoloring it and giving it the underline's paragraph spacing)
+            // while the real underline fell outside the element range
+            // entirely and rendered with no heading styling at all. So: scan
+            // forward line by line from the start looking for the underline
+            // itself — a line composed only of "=" (level 1) or only of "-"
+            // (level 2+), matching how cmark itself decides where a setext
+            // heading's content ends.
+            //
+            // When no blank line separates the heading from whatever follows
+            // it, swift-markdown's reported nsRange can extend past the
+            // underline into that next block, so the scan is capped at
+            // nsRange's own upper bound rather than trusted past it.
+            let underlineChar: UInt16 = level == 1 ? Self.equalsUTF16 : Self.dashUTF16
+            var delimStart = nsRange.location
+            var delimEnd = NSMaxRange(nsRange)
+            var cursor = nsRange.location
+            while cursor < NSMaxRange(nsRange) {
+                let lineRange = text.lineRange(for: NSRange(location: cursor, length: 0))
+                if Self.isSetextUnderlineLine(text, lineRange, char: underlineChar) {
+                    delimStart = lineRange.location
+                    delimEnd = min(NSMaxRange(lineRange), NSMaxRange(nsRange))
+                    break
+                }
+                let next = NSMaxRange(lineRange)
+                guard next > cursor else { break } // defensive: never loop forever
+                cursor = next
+            }
+            contentRange = NSRange(location: nsRange.location, length: max(0, delimStart - nsRange.location))
+            delimiterRange = NSRange(location: delimStart, length: max(0, delimEnd - delimStart))
+            elementRange = NSRange(location: nsRange.location, length: delimEnd - nsRange.location)
         }
 
         // The ATX "#" prefix carries no reading value once the font size
@@ -187,15 +209,34 @@ private struct StyleWalker: MarkupWalker {
             delimiterRanges: isATX ? [delimiterRange] : [],
             attributes: isATX
                 ? MarkdownTheme.shared.headingAttributes(level: level)
-                : MarkdownTheme.shared.headingSetextContentAttributes(level: level)
+                : MarkdownTheme.shared.headingSetextContentAttributes(level: level, isFirstLine: true)
         ))
-        if !isATX, delimiterRange.length > 0 {
-            elements.append(StyledElement(
-                fullRange: delimiterRange,
-                contentRange: delimiterRange,
-                delimiterRanges: [],
-                attributes: MarkdownTheme.shared.headingUnderlineAttributes(level: level)
-            ))
+        if !isATX {
+            // If content spans more than one physical line, only the first
+            // one should carry the block's "gap above" spacing (applied
+            // uniformly above via the base element) — a second content line
+            // getting that same spacing would open an unwanted gap between
+            // it and the line before it, inside what's meant to read as one
+            // tight heading block.
+            let firstContentLineRange = text.lineRange(for: NSRange(location: contentRange.location, length: 0))
+            let firstContentLineEnd = min(NSMaxRange(firstContentLineRange), NSMaxRange(contentRange))
+            if firstContentLineEnd < NSMaxRange(contentRange) {
+                let continuationRange = NSRange(location: firstContentLineEnd, length: NSMaxRange(contentRange) - firstContentLineEnd)
+                elements.append(StyledElement(
+                    fullRange: continuationRange,
+                    contentRange: continuationRange,
+                    delimiterRanges: [],
+                    attributes: MarkdownTheme.shared.headingSetextContentAttributes(level: level, isFirstLine: false)
+                ))
+            }
+            if delimiterRange.length > 0 {
+                elements.append(StyledElement(
+                    fullRange: delimiterRange,
+                    contentRange: delimiterRange,
+                    delimiterRanges: [],
+                    attributes: MarkdownTheme.shared.headingUnderlineAttributes(level: level)
+                ))
+            }
         }
         headings.append((
             range: elementRange,
@@ -206,6 +247,29 @@ private struct StyleWalker: MarkupWalker {
     }
 
     private static let hashUTF16 = UInt16(UnicodeScalar("#").value)
+    private static let equalsUTF16 = UInt16(UnicodeScalar("=").value)
+    private static let dashUTF16 = UInt16(UnicodeScalar("-").value)
+
+    /// True if `lineRange` (an `NSString.lineRange` result, so it includes
+    /// the trailing line terminator) consists only of `char` and spaces/tabs
+    /// — i.e. a Setext underline line ("===" or "---"), matching how cmark
+    /// itself recognizes one.
+    private static func isSetextUnderlineLine(_ text: NSString, _ lineRange: NSRange, char: UInt16) -> Bool {
+        var sawChar = false
+        var i = lineRange.location
+        let end = NSMaxRange(lineRange)
+        while i < end {
+            let c = text.character(at: i)
+            if c == 10 || c == 13 { break } // \n or \r
+            if c == char {
+                sawChar = true
+            } else if c != 32 && c != 9 { // not a space or tab
+                return false
+            }
+            i += 1
+        }
+        return sawChar
+    }
 
     // MARK: - Bold
 

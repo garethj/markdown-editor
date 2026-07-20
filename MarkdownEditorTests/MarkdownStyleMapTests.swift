@@ -269,6 +269,65 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertFalse(map.allDelimiterRanges.contains { text($0, in: source).contains("body") })
     }
 
+    /// Regression: CommonMark allows a Setext heading's content to span more
+    /// than one physical line ("one or more lines of text" before the
+    /// underline) — e.g. no blank line between a preceding paragraph and the
+    /// heading merges that paragraph's last line(s) into the heading itself.
+    /// MarkdownStyleMap used to assume content was always exactly the first
+    /// line, which — given "# Heading\nTest\nHeading\n---\n" (no blank lines
+    /// anywhere) — mistook the second content line ("Heading") for the
+    /// underline itself (recoloring it and giving it the underline's
+    /// spacing) while the real underline ("---") fell outside the element
+    /// range entirely and rendered with no heading styling at all.
+    func testSetextHeadingContentCanSpanMultipleLines() {
+        let source = "# Heading\nTest\nHeading\n---\n"
+        let map = MarkdownStyleMap(text: source)
+        let nsSource = source as NSString
+
+        XCTAssertEqual(map.headings.count, 2)
+        XCTAssertEqual(map.headings[0].title, "Heading")
+        XCTAssertEqual(map.headings[1].level, 2)
+        // cmark folds the multi-line content into one space-joined title —
+        // confirms this really is "Test" + "Heading" as one heading's text.
+        XCTAssertEqual(map.headings[1].title, "Test Heading")
+
+        // Elements overlap by design (a wide base element plus narrower
+        // overlays for the continuation line and the underline — see
+        // visitHeading), so "effective" attributes at a position are
+        // whichever matching element sorts last, mirroring real application
+        // order in MarkdownTextStorage.applyMarkdownStyling.
+        func effectiveAttributes(at substring: String) -> [NSAttributedString.Key: Any]? {
+            let range = nsSource.range(of: substring)
+            guard range.location != NSNotFound else { return nil }
+            return map.elements.filter { NSLocationInRange(range.location, $0.fullRange) }.last?.attributes
+        }
+
+        // "Test" (first content line) must carry the heading's big/bold font
+        // and its actual color — it's heading content, not plain body text.
+        let testAttrs = effectiveAttributes(at: "Test")
+        XCTAssertEqual(testAttrs?[.foregroundColor] as? NSColor, MarkdownTheme.shared.headingColor)
+        XCTAssertEqual((testAttrs?[.font] as? NSFont)?.pointSize, MarkdownTheme.shared.headingFonts[1].pointSize)
+        XCTAssertEqual((testAttrs?[.paragraphStyle] as? NSParagraphStyle)?.paragraphSpacing, 0)
+
+        // "Heading" (second content line, the continuation) must be the same
+        // heading color — NOT the accent color, which the pre-fix bug gave
+        // it by mistaking it for the underline — and must not repeat the
+        // gap-above-heading spacing that "Test" already carries.
+        let secondHeadingLineLocation = nsSource.range(of: "Heading", options: .backwards, range: NSRange(location: 0, length: nsSource.range(of: "---").location)).location
+        let continuationAttrs = map.elements.filter { NSLocationInRange(secondHeadingLineLocation, $0.fullRange) }.last?.attributes
+        XCTAssertEqual(continuationAttrs?[.foregroundColor] as? NSColor, MarkdownTheme.shared.headingColor)
+        let continuationPara = continuationAttrs?[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertEqual(continuationPara?.paragraphSpacingBefore, 0, "second content line must not repeat the gap-above-heading spacing")
+        XCTAssertEqual(continuationPara?.paragraphSpacing, 0)
+
+        // The real underline is the *third* line down ("---"), not "Heading".
+        let underlineAttrs = effectiveAttributes(at: "---")
+        XCTAssertEqual(underlineAttrs?[.foregroundColor] as? NSColor, MarkdownTheme.shared.linkColor)
+        XCTAssertEqual((underlineAttrs?[.paragraphStyle] as? NSParagraphStyle)?.paragraphSpacingBefore, 0)
+        XCTAssertGreaterThan((underlineAttrs?[.paragraphStyle] as? NSParagraphStyle)?.paragraphSpacing ?? 0, 0,
+                             "gap after the whole heading block, before whatever follows, must be preserved")
+    }
+
     // MARK: - Thematic breaks
 
     /// A thematic break ("---"/"***"/"___") is the purest case of "the whole

@@ -233,22 +233,29 @@ final class MarkdownTheme {
         return cachedHeadingAttributes[idx]
     }
 
-    /// A Setext heading's text line and its own "==="/"---" underline are
-    /// two separate NSTextView paragraphs (paragraph boundaries follow "\n",
+    /// A Setext heading's text line(s) and its own "==="/"---" underline are
+    /// separate NSTextView paragraphs (paragraph boundaries follow "\n",
     /// regardless of shared markdown-node identity), but headingAttributes(level:)'s
     /// paragraphStyle carries both spacing-before-the-heading-block AND
     /// spacing-after-the-heading-block on a single style meant for one
-    /// physical line. Applying that same style to both lines double-counts:
-    /// the text line's own spacing-after plus the underline's own
-    /// spacing-before both add up between them, opening a gap that
-    /// shouldn't be there. These two variants split that apart — use this
-    /// one on the content (text) line, keeping spacing-before (the gap
-    /// above the heading) but zeroing spacing-after (no gap before its own
-    /// underline).
-    func headingSetextContentAttributes(level: Int) -> [NSAttributedString.Key: Any] {
+    /// physical line. Applying that same style to every line double-counts:
+    /// one line's own spacing-after plus the next line's spacing-before
+    /// both add up between them, opening a gap that shouldn't be there.
+    /// Zero spacing-after here unconditionally (no gap before whatever
+    /// line follows within the heading — content line or underline).
+    /// `isFirstLine` controls spacing-before: CommonMark allows a Setext
+    /// heading's content to span more than one physical line ("one or more
+    /// lines of text" before the underline) — only the very first one
+    /// should carry the gap above the whole heading block; a second
+    /// content line getting that too would open an unwanted gap between it
+    /// and the line before it, inside what should read as one tight block.
+    func headingSetextContentAttributes(level: Int, isFirstLine: Bool) -> [NSAttributedString.Key: Any] {
         var attrs = headingAttributes(level: level)
         if let para = (attrs[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
             para.paragraphSpacing = 0
+            if !isFirstLine {
+                para.paragraphSpacingBefore = 0
+            }
             attrs[.paragraphStyle] = para
         }
         return attrs
