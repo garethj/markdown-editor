@@ -145,6 +145,46 @@ final class MarkdownTextStorageTests: XCTestCase {
                       "layout manager must be notified about other rows whose kerning changed")
     }
 
+    /// Regression: two backspaces in a row at the end of any multi-line
+    /// document used to crash — the first deletes the trailing newline, the
+    /// second deletes the character before it. Nothing markdown-specific
+    /// about the trigger (this reproduces with plain, construct-free text);
+    /// it was first reported as "crashes when backspacing in a bullet," but
+    /// that was incidental to what the user happened to be editing, not the
+    /// cause. Needs the real NSTextView.deleteBackward: path (not just
+    /// storage.replaceCharacters) plus a real NSLayoutManager + NSTextContainer,
+    /// since the crash lived inside NSLayoutManager's private rect
+    /// computation, not in MarkdownTextStorage's own range math.
+    ///
+    /// Root cause: MarkdownTextStorage.processEditing() called
+    /// applyMarkdownStyling() — which ends by calling
+    /// NSLayoutManager.invalidateDisplay(forCharacterRange:) — *before*
+    /// calling super.processEditing(). super.processEditing() is what
+    /// actually notifies attached layout managers of the edit's
+    /// character-count change; calling invalidateDisplay before that let
+    /// NSLayoutManager compute rects while its internal glyph cache still
+    /// reflected the pre-edit (longer) text length, reading past the
+    /// already-shortened backingStore string on the very next edit. Fixed by
+    /// deferring the invalidateDisplay call to run after super.processEditing().
+    func testConsecutiveBackspacesAtDocumentEndDoNotCrash() {
+        let storage = MarkdownTextStorage()
+        let lm = NSLayoutManager()
+        let delegate = MarkdownLayoutManagerDelegate()
+        lm.delegate = delegate
+        storage.addLayoutManager(lm)
+        let container = MarkdownTextContainer()
+        container.proseWidth = 600
+        lm.addTextContainer(container)
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
+
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "hello\nworld\n")
+        textView.setSelectedRange(NSRange(location: storage.length, length: 0))
+        while storage.length > 0 {
+            textView.deleteBackward(nil)
+        }
+        XCTAssertEqual(storage.string, "")
+    }
+
     private func markerColor(in storage: MarkdownTextStorage, lineIndex: Int) -> NSColor? {
         let lines = storage.string.components(separatedBy: "\n")
         guard lineIndex < lines.count else { return nil }

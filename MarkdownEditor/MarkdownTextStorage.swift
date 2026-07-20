@@ -19,6 +19,23 @@ final class MarkdownTextStorage: NSTextStorage {
         backingStore.replaceCharacters(in: range, with: str)
         edited(.editedCharacters, range: range, changeInLength: str.count - range.length)
         endEditing()
+
+        // Must run after endEditing() has fully returned, not just after
+        // super.processEditing() inside it — processEditing() itself still
+        // executes *inside* endEditing()'s call frame, so the text storage
+        // is still in its "editing" state at that point. Calling
+        // invalidateDisplay(forCharacterRange:) (or anything else that
+        // triggers glyph generation) while still editing throws
+        // NSInternalInconsistencyException ("attempted glyph generation
+        // while textStorage is editing") — confirmed by hitting that
+        // assertion directly while chasing the string-index-out-of-bounds
+        // crash this replaced (see the comment on pendingDisplayInvalidationRange).
+        if let range = pendingDisplayInvalidationRange {
+            pendingDisplayInvalidationRange = nil
+            for lm in layoutManagers {
+                lm.invalidateDisplay(forCharacterRange: range)
+            }
+        }
     }
 
     override func setAttributes(_ attrs: [NSAttributedString.Key: Any]?, range: NSRange) {
@@ -32,6 +49,11 @@ final class MarkdownTextStorage: NSTextStorage {
 
     /// Tracks the edited range during processEditing for incremental styling.
     private var pendingEditedRange: NSRange?
+
+    /// The range applyMarkdownStyling() wants redisplayed, consumed in
+    /// replaceCharacters(in:with:) after endEditing() fully returns — see
+    /// the comment there for why it can't happen any earlier.
+    private var pendingDisplayInvalidationRange: NSRange?
 
     override func processEditing() {
         if editedMask.contains(.editedCharacters) {
@@ -151,9 +173,12 @@ final class MarkdownTextStorage: NSTextStorage {
         // keystroke alone still landed correctly). invalidateDisplay(forCharacterRange:)
         // forces the redraw without going through that edit-notification/selection-sync
         // path at all.
-        for lm in layoutManagers {
-            lm.invalidateDisplay(forCharacterRange: effectiveDirtyRange)
-        }
+        //
+        // The actual invalidateDisplay(forCharacterRange:) call happens in
+        // processEditing(), after super.processEditing() — see the comment
+        // there. Calling it directly from here would run it before layout
+        // managers have been notified of this edit's length change.
+        pendingDisplayInvalidationRange = effectiveDirtyRange
     }
 
     // MARK: - Bare URL detection
