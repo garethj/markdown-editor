@@ -76,9 +76,6 @@ final class MarkdownStyleMap {
     private(set) var checkboxes: [(range: NSRange, checked: Bool)]
     /// Headings in document order, for the table of contents.
     private(set) var headings: [(range: NSRange, level: Int, title: String)]
-    /// Character index → replacement glyph character, for reshaping unordered
-    /// bullet markers ("-"/"*") into filled/hollow circles and diamonds by depth.
-    private(set) var listMarkerGlyphOverrides: [(location: Int, character: Character)]
 
     init(text: String) {
         guard !text.isEmpty else {
@@ -87,7 +84,6 @@ final class MarkdownStyleMap {
             self.tableRegions = []
             self.checkboxes = []
             self.headings = []
-            self.listMarkerGlyphOverrides = []
             return
         }
         let doc = Document(parsing: text)
@@ -108,7 +104,6 @@ final class MarkdownStyleMap {
         self.tableRegions = walker.tableRegions
         self.checkboxes = walker.checkboxes
         self.headings = walker.headings
-        self.listMarkerGlyphOverrides = walker.listMarkerGlyphOverrides
     }
 
     func appendElements(_ newElements: [StyledElement]) {
@@ -128,8 +123,6 @@ private struct StyleWalker: MarkupWalker {
     var tableRegions: [(charRange: NSRange, requiredWidth: CGFloat)] = []
     var checkboxes: [(range: NSRange, checked: Bool)] = []
     var headings: [(range: NSRange, level: Int, title: String)] = []
-    var listMarkerGlyphOverrides: [(location: Int, character: Character)] = []
-    var listDepth = 0
 
     // MARK: - Headings
 
@@ -156,13 +149,12 @@ private struct StyleWalker: MarkupWalker {
                                    length: max(0, nsRange.length - delimiterLength))
         } else {
             // Setext heading: nsRange spans both the text line and its "===" /
-            // "---" underline. Keep the text line visible; hide the underline.
-            // When no blank line separates the heading from whatever follows,
-            // swift-markdown's reported nsRange can extend past the underline
-            // into that next block — clamp everything to the underline's own
-            // line rather than trusting nsRange's upper bound, otherwise the
-            // next paragraph gets swallowed into the heading's styling and
-            // partially hidden as a "delimiter".
+            // "---" underline. When no blank line separates the heading from
+            // whatever follows, swift-markdown's reported nsRange can extend
+            // past the underline into that next block — clamp everything to
+            // the underline's own line rather than trusting nsRange's upper
+            // bound, otherwise the next paragraph gets swallowed into the
+            // heading's styling.
             let textLineRange = text.lineRange(for: NSRange(location: nsRange.location, length: 0))
             let contentEnd = min(NSMaxRange(textLineRange), NSMaxRange(nsRange))
             contentRange = NSRange(location: nsRange.location, length: contentEnd - nsRange.location)
@@ -172,12 +164,29 @@ private struct StyleWalker: MarkupWalker {
             elementRange = NSRange(location: nsRange.location, length: delimiterEnd - nsRange.location)
         }
 
+        // The ATX "#" prefix carries no reading value once the font size
+        // already signals the level, so it stays hidden like a bold/italic
+        // delimiter. The Setext "==="/"---" underline is different — unlike
+        // "#", it's the only thing distinguishing an H1 from an H2 in that
+        // syntax, so (like blockquote's ">" or a table's pipes) it stays
+        // visible, recolored to the accent color instead of hidden. It still
+        // inherits the heading's own font from the element below (only the
+        // color is overridden here), so its size continues to track heading
+        // level exactly as the text line's does.
         elements.append(StyledElement(
             fullRange: elementRange,
             contentRange: contentRange,
-            delimiterRanges: [delimiterRange],
+            delimiterRanges: isATX ? [delimiterRange] : [],
             attributes: MarkdownTheme.shared.headingAttributes(level: level)
         ))
+        if !isATX, delimiterRange.length > 0 {
+            elements.append(StyledElement(
+                fullRange: delimiterRange,
+                contentRange: delimiterRange,
+                delimiterRanges: [],
+                attributes: MarkdownTheme.shared.headingUnderlineAttributes
+            ))
+        }
         headings.append((
             range: elementRange,
             level: level,
@@ -328,6 +337,25 @@ private struct StyleWalker: MarkupWalker {
         ))
     }
 
+    // MARK: - Thematic breaks
+
+    /// A thematic break ("---"/"***"/"___") is the purest case of "the whole
+    /// line is the delimiter" — same principle as blockquote/table markers:
+    /// visible, colored with the accent color, not hidden.
+    mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
+        guard let sourceRange = thematicBreak.range,
+              let nsRange = converter.nsRange(for: sourceRange),
+              nsRange.location + nsRange.length <= textLength
+        else { return }
+
+        elements.append(StyledElement(
+            fullRange: nsRange,
+            contentRange: nsRange,
+            delimiterRanges: [],
+            attributes: MarkdownTheme.shared.thematicBreakAttributes
+        ))
+    }
+
     // MARK: - Links
 
     mutating func visitLink(_ link: Link) {
@@ -375,18 +403,6 @@ private struct StyleWalker: MarkupWalker {
     }
 
     // MARK: - Lists: bullets, numbers, and task checkboxes
-
-    mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
-        listDepth += 1
-        descendInto(unorderedList)
-        listDepth -= 1
-    }
-
-    mutating func visitOrderedList(_ orderedList: OrderedList) {
-        listDepth += 1
-        descendInto(orderedList)
-        listDepth -= 1
-    }
 
     mutating func visitListItem(_ listItem: ListItem) {
         defer { descendInto(listItem) }
@@ -449,12 +465,6 @@ private struct StyleWalker: MarkupWalker {
                 ? MarkdownTheme.shared.listNumberAttributes
                 : MarkdownTheme.shared.listBulletAttributes
         ))
-        if !isOrdered {
-            listMarkerGlyphOverrides.append((
-                location: markerRange.location,
-                character: Self.bulletCharacter(forDepth: max(1, listDepth))
-            ))
-        }
     }
 
     /// Locates the bullet ("-"/"*"/"+") or ordered-number ("1." / "2)") marker
@@ -477,21 +487,6 @@ private struct StyleWalker: MarkupWalker {
         } else {
             guard let first = snippet.first, first == "-" || first == "*" || first == "+" else { return nil }
             return NSRange(location: itemRange.location, length: 1)
-        }
-    }
-
-    /// Cycles unordered-bullet shape by nesting depth: filled circle, hollow
-    /// circle, filled diamond, hollow diamond. Uses the diamond-suit glyphs
-    /// (♦/♢) rather than the geometric-shapes ones (◆/◇) — the latter have no
-    /// glyph in `.AppleSystemUIFont` at the bullet's small point size, so
-    /// `MarkdownLayoutManagerDelegate`'s glyph substitution silently no-ops
-    /// and the literal source marker character ("-") draws instead.
-    private static func bulletCharacter(forDepth depth: Int) -> Character {
-        switch depth {
-        case 1: return "●"
-        case 2: return "○"
-        case 3: return "♦"
-        default: return "♢"
         }
     }
 

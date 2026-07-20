@@ -111,6 +111,17 @@ NSTextView edit
 
 `MarkdownLayoutManagerDelegate` holds a `delimiterIndexSet: IndexSet`. During glyph generation it sets the `.null` property on any character whose index is in the set, making it invisible and zero-width. The `activeSpanRange` exempts the span the cursor is currently inside (so delimiters become visible when you move into them).
 
+### Delimiter visibility: hide vs. colorize
+
+When adding styling for a new markdown construct, decide up front whether its delimiter characters carry real information or are pure syntax noise — this determines hide-vs-colorize, and getting it backwards is an easy way to accidentally discard something the user's source actually says:
+
+- **Hide it** (add to `delimiterRanges`, per "Glyph hiding" above) when the character has zero reading value once the surrounding styling already signals the same thing — nobody needs to see the literal `**`/`_`/`` ` `` to know something's bold/italic/code, and ATX heading `#` is redundant once font size signals the level.
+- **Keep it visible, recolored to the accent color** (`MarkdownTheme.shared.linkColor`, the same accent used for links) when the character *is* the information, or losing it would lose something the source actually distinguishes — a blockquote's `>`, a table's pipes and separator row, a Setext heading's `===`/`---` (the only thing distinguishing an H1 from an H2 in that syntax), a thematic break's `---`/`***`/`___` (the whole line *is* the marker), and an unordered list's bullet character itself (CommonMark treats a change of marker — `-` vs `*` vs `+` — as starting a new list, so replacing it with an app-invented shape would erase that distinction). Checkboxes follow the same rule at one remove: `[ ]`/`[x]` stays as literal bracket text, just recolored/dimmed, rather than being swapped for a custom glyph.
+
+Concretely: append a second `StyledElement` for just the marker's sub-range, applied *after* the element covering the construct's full range, with attributes that set `.foregroundColor` only (no `.font`) — `backingStore.addAttributes` merges rather than replaces, so the marker inherits whatever font the base element already set (e.g. a Setext underline naturally staying at the heading's own size) and only the color changes. See `visitBlockQuote`/`blockQuoteMarkerAttributes`, `visitTable`/`tablePipeAttributes`, or the Setext branch of `visitHeading`/`headingUnderlineAttributes` in `MarkdownStyleMap.swift` for the pattern.
+
+This project got this wrong once already: list bullets used to be hidden and replaced with a depth-cycling substitute glyph (●/○/◆/◇) via a dedicated `NSLayoutManagerDelegate` glyph-substitution mechanism — which silently broke when two of those Unicode characters turned out to have no glyph in `.AppleSystemUIFont` at the bullet's point size (the substitution no-opped, so the literal `-` drew instead, undetected until a screenshot caught it). Switching to literal-marker-recolored fixed the bug *and* removed the entire glyph-substitution subsystem, since bullets were its only caller.
+
 ### Table layout
 
 `MarkdownTextContainer` overrides `lineFragmentRect(forProposedRect:at:)` to return wider rects for table lines, enabling horizontal scrolling for wide tables while prose wraps at window width. Column alignment is achieved with `.kern` attributes on the last character of each cell, computed from max visual column widths (accounting for hidden inline delimiters).

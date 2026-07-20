@@ -231,28 +231,59 @@ final class MarkdownStyleMapTests: XCTestCase {
         _ = italicEl
     }
 
-    /// Regression: Setext headings ("Text\n===") must hide only the underline
-    /// line, keeping the text line itself visible and unstyled as a delimiter.
-    func testSetextHeadingHidesOnlyUnderline() {
+    /// Setext headings ("Text\n===") show the underline in the accent color
+    /// rather than hiding it. Unlike ATX's "#" (pure noise once font size
+    /// signals the level), "==="/"---" is the only thing distinguishing an H1
+    /// from an H2 in that syntax — so, like a blockquote's ">" or a table's
+    /// pipes, it stays visible, just recolored.
+    func testSetextHeadingUnderlineIsVisibleAndAccentColored() {
         let source = "Heading\n===\nbody\n"
         let map = MarkdownStyleMap(text: source)
         XCTAssertEqual(map.headings.count, 1)
         XCTAssertEqual(map.headings[0].level, 1)
         XCTAssertEqual(map.headings[0].title, "Heading")
 
-        guard let el = map.elements.first(where: { $0.delimiterRanges.count == 1 }) else {
-            return XCTFail("no setext heading element found")
+        guard let headingEl = map.elements.first(where: {
+            text($0.contentRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines) == "Heading"
+        }) else {
+            return XCTFail("no setext heading content element found")
         }
-        XCTAssertEqual(text(el.contentRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines), "Heading")
-        XCTAssertEqual(text(el.delimiterRanges[0], in: source).trimmingCharacters(in: .whitespacesAndNewlines), "===")
+        XCTAssertTrue(headingEl.delimiterRanges.isEmpty, "the underline must not be hidden as a delimiter")
         // Regression: swift-markdown reports the Heading node's own range as
         // extending into the very next block when there's no blank line
         // between the underline and what follows it — if MarkdownStyleMap
         // trusted that upper bound, the heading's fullRange (and therefore
-        // its bold/large font) would swallow "body" too, and "body" would
-        // also get hidden as a bogus part of the delimiter.
-        XCTAssertEqual(text(el.fullRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines), "Heading\n===")
+        // its bold/large font) would swallow "body" too.
+        XCTAssertEqual(text(headingEl.fullRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines), "Heading\n===")
+
+        guard let underlineEl = map.elements.first(where: {
+            text($0.fullRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines) == "==="
+        }) else {
+            return XCTFail("no setext underline overlay element found")
+        }
+        XCTAssertEqual(underlineEl.attributes[.foregroundColor] as? NSColor, MarkdownTheme.shared.linkColor)
+        XCTAssertNil(underlineEl.attributes[.font], "underline should inherit the heading font from the base element below it, not set its own")
+        XCTAssertTrue(underlineEl.delimiterRanges.isEmpty)
+
+        XCTAssertFalse(map.allDelimiterRanges.contains { text($0, in: source).contains("===") })
         XCTAssertFalse(map.allDelimiterRanges.contains { text($0, in: source).contains("body") })
+    }
+
+    // MARK: - Thematic breaks
+
+    /// A thematic break ("---"/"***"/"___") is the purest case of "the whole
+    /// line is the delimiter" — same accent-color treatment as a blockquote's
+    /// ">" or a table's pipes, rather than being left in the default color.
+    func testThematicBreakIsAccentColored() {
+        let source = "above\n\n***\n\nbelow\n"
+        let map = MarkdownStyleMap(text: source)
+        guard let breakEl = map.elements.first(where: {
+            text($0.fullRange, in: source).trimmingCharacters(in: .whitespacesAndNewlines) == "***"
+        }) else {
+            return XCTFail("no thematic break element found")
+        }
+        XCTAssertEqual(breakEl.attributes[.foregroundColor] as? NSColor, MarkdownTheme.shared.linkColor)
+        XCTAssertTrue(breakEl.delimiterRanges.isEmpty, "the rule must stay visible, not be hidden as a delimiter")
     }
 
     // MARK: - Blockquotes
@@ -317,26 +348,28 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertEqual(checkedColor, MarkdownTheme.shared.checkedTaskTextAttributes[.foregroundColor] as? NSColor)
     }
 
-    // MARK: - List bullet depth glyphs
+    // MARK: - List bullet markers
 
-    func testUnorderedBulletGlyphCyclesByDepth() {
-        let source = "- top\n  - nested\n    - deeper\n      - deepest\n"
+    /// Bullet markers render the literal source character ("-"/"*"/"+"),
+    /// just recolored — not a depth-cycling substitute shape (●/○/♦/♢), the
+    /// prior behavior. The marker character is real source content (a
+    /// CommonMark list splits into a new list when the marker changes), so
+    /// three sibling-nested lists using three different markers should each
+    /// keep showing their own marker, distinguished only by accent color and
+    /// indentation — not collapsed into a single app-invented shape sequence.
+    func testUnorderedBulletMarkersStayLiteralAndAccentColored() {
+        let source = "- top\n  * nested\n    + deeper\n"
         let map = MarkdownStyleMap(text: source)
-        XCTAssertEqual(map.listMarkerGlyphOverrides.count, 4)
-        XCTAssertEqual(map.listMarkerGlyphOverrides[0].character, "\u{25CF}") // ●
-        XCTAssertEqual(map.listMarkerGlyphOverrides[1].character, "\u{25CB}") // ○
-        // Depths 3+ must resolve to glyphs .AppleSystemUIFont actually has at
-        // the bullet's small point size — the geometric-shapes diamonds
-        // (◆ U+25C6 / ◇ U+25C7) have none there, so the layout-manager glyph
-        // substitution silently no-ops and the literal "-" source marker
-        // draws instead. This regressed once already; assert the
-        // diamond-suit glyphs (which do resolve) explicitly rather than just
-        // asserting "not equal to the source marker".
-        XCTAssertEqual(map.listMarkerGlyphOverrides[2].character, "\u{2666}") // ♦
-        XCTAssertEqual(map.listMarkerGlyphOverrides[3].character, "\u{2662}") // ♢
-        for override in map.listMarkerGlyphOverrides {
-            XCTAssertNotEqual(override.character, "\u{25C6}", "◆ has no glyph in .AppleSystemUIFont at the bullet size")
-            XCTAssertNotEqual(override.character, "\u{25C7}", "◇ has no glyph in .AppleSystemUIFont at the bullet size")
+        let markerChars = ["-", "*", "+"]
+        let bulletElements = map.elements.filter {
+            $0.fullRange.length == 1 && markerChars.contains(text($0.fullRange, in: source))
+        }
+        XCTAssertEqual(bulletElements.count, 3)
+        for (element, expectedMarker) in zip(bulletElements, markerChars) {
+            XCTAssertEqual(text(element.fullRange, in: source), expectedMarker)
+            XCTAssertEqual(element.attributes[.foregroundColor] as? NSColor, MarkdownTheme.shared.linkColor)
+            XCTAssertNil(element.attributes[.font], "bullet marker should inherit the body font, not a dedicated bullet font")
+            XCTAssertTrue(element.delimiterRanges.isEmpty, "the marker must stay visible, not be hidden as a delimiter")
         }
     }
 
@@ -355,7 +388,8 @@ final class MarkdownStyleMapTests: XCTestCase {
         }
         XCTAssertEqual(italicEl.delimiterRanges.map { text($0, in: source) }, ["_", "_"])
 
-        XCTAssertEqual(map.listMarkerGlyphOverrides.count, 1)
+        let bulletElements = map.elements.filter { text($0.fullRange, in: source) == "-" }
+        XCTAssertEqual(bulletElements.count, 1)
     }
 
     // MARK: - Tables

@@ -13,7 +13,7 @@ ATX headings (`#` through `######`):
 ##### Heading level 5
 ###### Heading level 6
 
-Setext headings (underlined with `===` or `---`) also work, as long as a blank line separates them from whatever follows — without one, the underline attaches to the wrong line:
+Setext headings (underlined with `===` or `---`) also work, as long as a blank line separates them from whatever follows — without one, the underline attaches to the wrong line. Unlike the ATX `#` (hidden entirely, since font size already signals the level), the underline itself stays visible, recolored in the accent color — it's the only thing distinguishing an H1 from an H2 in this syntax:
 
 Setext Heading, Level 1
 ========================
@@ -68,12 +68,12 @@ nothing else interrupts the paragraph.
 
 ### Unordered, with nested depth
 
-Bullet glyphs cycle by nesting depth — filled circle, hollow circle, filled diamond, hollow diamond:
+Bullet markers stay exactly as written in the source (`-`, `*`, or `+`), just recolored in the accent color — CommonMark treats a change of marker as starting a new list, so the app preserves that distinction rather than replacing it with a depth-cycling shape:
 
 - Top-level item
   - Nested one level
-    - Nested two levels
-      - Nested three levels
+    * Nested two levels, using `*`
+      + Nested three levels, using `+`
 
 ### Ordered
 
@@ -104,4 +104,12 @@ Pipes and the separator row stay visible, colored in the accent color so table s
 
 ## _An italicized heading_
 
-A heading's own text can contain inline emphasis, independent of the heading's own hidden `#`/underline delimiter.
+A heading's own text can contain inline emphasis, independent of the heading's own delimiter — hidden for ATX's `#`, visible-but-recolored for a Setext underline.
+
+## Thematic breaks
+
+A thematic break is the purest case of "the whole line is the delimiter," so — like a blockquote's `>` or a table's pipes — it stays visible, recolored in the accent color rather than left in the default text color:
+
+---
+
+Any of `---`, `***`, or `___` on their own line work identically.
