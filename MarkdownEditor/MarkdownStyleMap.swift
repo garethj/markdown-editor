@@ -173,18 +173,28 @@ private struct StyleWalker: MarkupWalker {
         // inherits the heading's own font from the element below (only the
         // color is overridden here), so its size continues to track heading
         // level exactly as the text line's does.
+        //
+        // For Setext, the base element below uses headingSetextContentAttributes
+        // rather than headingAttributes — the content (text) line and the
+        // underline line are two separate NSTextView paragraphs even though
+        // they're one markdown node, so applying the same before-and-after
+        // paragraph spacing to both double-counts the gap between them (see
+        // that function's doc comment). The underline element that follows
+        // overrides its own paragraph spacing back to the correct halves.
         elements.append(StyledElement(
             fullRange: elementRange,
             contentRange: contentRange,
             delimiterRanges: isATX ? [delimiterRange] : [],
-            attributes: MarkdownTheme.shared.headingAttributes(level: level)
+            attributes: isATX
+                ? MarkdownTheme.shared.headingAttributes(level: level)
+                : MarkdownTheme.shared.headingSetextContentAttributes(level: level)
         ))
         if !isATX, delimiterRange.length > 0 {
             elements.append(StyledElement(
                 fullRange: delimiterRange,
                 contentRange: delimiterRange,
                 delimiterRanges: [],
-                attributes: MarkdownTheme.shared.headingUnderlineAttributes
+                attributes: MarkdownTheme.shared.headingUnderlineAttributes(level: level)
             ))
         }
         headings.append((

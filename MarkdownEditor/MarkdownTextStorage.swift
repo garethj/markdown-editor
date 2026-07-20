@@ -137,7 +137,7 @@ final class MarkdownTextStorage: NSTextStorage {
         // Style bare URLs and highlights scoped to dirty region
         applyBareURLStyling(text: text, fullRange: effectiveDirtyRange)
 
-        let highlightElements = applyHighlightStyling(text: text, fullRange: effectiveDirtyRange)
+        let highlightElements = applyHighlightStyling(text: text, fullRange: effectiveDirtyRange, headingRanges: styleMap.headings.map { $0.range })
         if !highlightElements.isEmpty {
             styleMap.appendElements(highlightElements)
         }
@@ -215,7 +215,7 @@ final class MarkdownTextStorage: NSTextStorage {
         try! NSRegularExpression(pattern: #"==(.+?)=="#, options: [])
     }()
 
-    private func applyHighlightStyling(text: String, fullRange: NSRange) -> [StyledElement] {
+    private func applyHighlightStyling(text: String, fullRange: NSRange, headingRanges: [NSRange]) -> [StyledElement] {
         let matches = Self.highlightRegex.matches(in: text, options: [], range: fullRange)
         let highlightAttrs = MarkdownTheme.shared.highlightAttributes
         var elements: [StyledElement] = []
@@ -223,6 +223,15 @@ final class MarkdownTextStorage: NSTextStorage {
         for match in matches {
             let range = match.range
             guard range.length >= 5 else { continue } // ==x== minimum
+            // A Setext heading's "===" underline is a run of literal "="
+            // characters, which the "==(.+?)==" pattern above happily
+            // matches purely by coincidence — it's structural syntax, not
+            // `==highlighted text==`. Previously harmless (the underline's
+            // glyphs were hidden, so a highlight background behind them was
+            // invisible); now that the underline stays visible, a false
+            // match there paints stray yellow blocks across it. Skip any
+            // match that falls inside a heading's own range entirely.
+            guard !headingRanges.contains(where: { NSIntersectionRange($0, range).length == range.length }) else { continue }
 
             let contentRange = NSRange(location: range.location + 2, length: range.length - 4)
             backingStore.addAttributes(highlightAttrs, range: contentRange)

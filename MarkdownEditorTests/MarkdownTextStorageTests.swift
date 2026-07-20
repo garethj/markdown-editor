@@ -100,6 +100,51 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertFalse(revertedFont?.fontDescriptor.symbolicTraits.contains(.bold) ?? true)
     }
 
+    /// Regression: a Setext H1 underline is a run of literal "=" characters,
+    /// which the "==(.+?)==" highlight pattern matches purely by
+    /// coincidence — harmless while the underline was hidden (a highlight
+    /// background behind zero-width glyphs is invisible), but once the
+    /// underline became visible (recolored, not hidden), a false match
+    /// painted stray yellow highlight blocks across it.
+    func testSetextUnderlineIsNotFalselyHighlighted() {
+        let storage = makeStorage("Heading\n========\nbody\n")
+        let underlineStart = (storage.string as NSString).range(of: "========").location
+        for offset in 0..<8 {
+            XCTAssertNil(attributes(at: underlineStart + offset, in: storage)[.backgroundColor],
+                         "underline character at offset \(offset) must not be highlighted")
+        }
+    }
+
+    /// Companion to the above: real `==highlighted==` text outside a heading
+    /// must still work — the exclusion is scoped to heading ranges, not a
+    /// blanket disabling of the highlight feature.
+    func testRealHighlightStillWorksOutsideHeadings() {
+        let storage = makeStorage("a sentence with ==highlighted text== in it\n")
+        let contentStart = (storage.string as NSString).range(of: "highlighted text").location
+        XCTAssertNotNil(attributes(at: contentStart, in: storage)[.backgroundColor])
+    }
+
+    /// Regression: a Setext heading's text line and its own "==="/"---"
+    /// underline are two separate NSTextView paragraphs even though they're
+    /// one markdown node. Applying the heading's single before-and-after
+    /// paragraph-spacing style to both used to double-count the gap between
+    /// them (text line's own spacing-after + underline's own
+    /// spacing-before), visibly separating "Heading" from its own "===".
+    /// The content line should keep its spacing *before* (gap above the
+    /// heading) but drop spacing *after*; the underline should do the
+    /// reverse.
+    func testSetextHeadingHasNoGapBetweenTextAndUnderline() {
+        let storage = makeStorage("Heading\n===\nbody\n")
+        let contentPara = attributes(at: 0, in: storage)[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertEqual(contentPara?.paragraphSpacing, 0, "no gap should open up below the heading text, before its own underline")
+        XCTAssertGreaterThan(contentPara?.paragraphSpacingBefore ?? 0, 0, "gap above the heading block itself must be preserved")
+
+        let underlineStart = (storage.string as NSString).range(of: "===").location
+        let underlinePara = attributes(at: underlineStart, in: storage)[.paragraphStyle] as? NSParagraphStyle
+        XCTAssertEqual(underlinePara?.paragraphSpacingBefore, 0, "no gap should open up above the underline, below the heading text")
+        XCTAssertGreaterThan(underlinePara?.paragraphSpacing ?? 0, 0, "gap after the heading block, before what follows, must be preserved")
+    }
+
     /// Regression: table column kerning is recomputed for the whole table on
     /// every keystroke (full AST reparse), and the dirty-region widening step
     /// already unions in the table's whole-table element — but the actual

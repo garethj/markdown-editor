@@ -190,15 +190,6 @@ final class MarkdownTheme {
         // Thematic breaks ("---"/"***"/"___") are the purest case of "the
         // whole line is the delimiter" — same accent treatment.
         thematicBreakAttributes = [.foregroundColor: linkColor]
-        // A Setext heading's "==="/"---" underline is the only thing that
-        // distinguishes an H1 from an H2 in that syntax (unlike ATX's "#",
-        // which is pure noise once font size signals the level), so it stays
-        // visible and gets recolored rather than hidden. No .font here
-        // deliberately — MarkdownStyleMap applies this after the heading's
-        // own attributes, so the underline keeps inheriting the heading font
-        // (and thus its size) and only the color is overridden.
-        headingUnderlineAttributes = [.foregroundColor: linkColor]
-
         // Pre-compute heading attribute dicts for all 6 levels
         cachedHeadingAttributes = headingSizes.enumerated().map { (idx, _) -> [NSAttributedString.Key: Any] in
             let level = idx + 1
@@ -229,7 +220,6 @@ final class MarkdownTheme {
     private(set) var tableHeaderAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var tablePipeAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var thematicBreakAttributes: [NSAttributedString.Key: Any] = [:]
-    private(set) var headingUnderlineAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var highlightAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxUncheckedAttributes: [NSAttributedString.Key: Any] = [:]
     private(set) var checkboxCheckedAttributes: [NSAttributedString.Key: Any] = [:]
@@ -241,6 +231,46 @@ final class MarkdownTheme {
     func headingAttributes(level: Int) -> [NSAttributedString.Key: Any] {
         let idx = max(0, min(level - 1, cachedHeadingAttributes.count - 1))
         return cachedHeadingAttributes[idx]
+    }
+
+    /// A Setext heading's text line and its own "==="/"---" underline are
+    /// two separate NSTextView paragraphs (paragraph boundaries follow "\n",
+    /// regardless of shared markdown-node identity), but headingAttributes(level:)'s
+    /// paragraphStyle carries both spacing-before-the-heading-block AND
+    /// spacing-after-the-heading-block on a single style meant for one
+    /// physical line. Applying that same style to both lines double-counts:
+    /// the text line's own spacing-after plus the underline's own
+    /// spacing-before both add up between them, opening a gap that
+    /// shouldn't be there. These two variants split that apart — use this
+    /// one on the content (text) line, keeping spacing-before (the gap
+    /// above the heading) but zeroing spacing-after (no gap before its own
+    /// underline).
+    func headingSetextContentAttributes(level: Int) -> [NSAttributedString.Key: Any] {
+        var attrs = headingAttributes(level: level)
+        if let para = (attrs[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            para.paragraphSpacing = 0
+            attrs[.paragraphStyle] = para
+        }
+        return attrs
+    }
+
+    /// The underline-line counterpart to headingSetextContentAttributes(level:) —
+    /// zeroes spacing-before (already provided by the content line above it)
+    /// but keeps the heading block's normal spacing-after (the gap before
+    /// whatever follows). Also recolors to the accent color: unlike ATX's
+    /// "#" (pure noise once font size signals the level), the underline is
+    /// the only thing distinguishing an H1 from an H2 in Setext, so it stays
+    /// visible rather than hidden. No .font override here — MarkdownStyleMap
+    /// applies this after the content line's own attributes, so the
+    /// underline keeps inheriting the heading font (and thus its size), and
+    /// only color and paragraph spacing are overridden.
+    func headingUnderlineAttributes(level: Int) -> [NSAttributedString.Key: Any] {
+        var attrs: [NSAttributedString.Key: Any] = [.foregroundColor: linkColor]
+        if let para = (headingAttributes(level: level)[.paragraphStyle] as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle {
+            para.paragraphSpacingBefore = 0
+            attrs[.paragraphStyle] = para
+        }
+        return attrs
     }
 
     private var defaultParagraphStyle: NSParagraphStyle {
