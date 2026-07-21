@@ -752,10 +752,14 @@ struct MarkdownTextView: NSViewRepresentable {
             pattern: #"^(\s*)([-*+])\s+(\[[ xX]\]\s+)?(.*)$"#
         )
 
-        /// Continues a list when Return is pressed at the end of a list item
-        /// (same marker, or the next number for ordered lists), and exits the
-        /// list when Return is pressed on an already-empty item — matching
-        /// the convention most list-aware editors use.
+        /// Continues a list when Return is pressed anywhere in a list item's
+        /// content — at the end (same marker, or the next number for ordered
+        /// lists) or mid-line (splitting the text, with the trailing half
+        /// carrying the new marker) — and exits the list when Return is
+        /// pressed on an already-empty item. Matches the convention most
+        /// list-aware editors (and CommonMark's own item-splitting semantics)
+        /// use. Return pressed inside the marker/indent itself (before the
+        /// item's content begins) is left to fall through to default handling.
         private func handleListContinuation(in textView: NSTextView) -> Bool {
             let selRange = textView.selectedRange()
             guard selRange.length == 0 else { return false }
@@ -766,15 +770,15 @@ struct MarkdownTextView: NSViewRepresentable {
             if lineContentEnd > lineRange.location, nsText.character(at: lineContentEnd - 1) == 10 {
                 lineContentEnd -= 1
             }
-            // Only take over Return at the end of the line's text — mid-line
-            // Return should just split the text as usual.
-            guard selRange.location == lineContentEnd else { return false }
 
             let line = nsText.substring(with: NSRange(location: lineRange.location, length: lineContentEnd - lineRange.location))
             let lineNS = line as NSString
             let fullLineRange = NSRange(location: 0, length: lineNS.length)
 
             if let match = Self.orderedListLineRegex.firstMatch(in: line, range: fullLineRange) {
+                let contentStart = lineRange.location + match.range(at: 4).location
+                guard selRange.location >= contentStart else { return false }
+
                 let indent = lineNS.substring(with: match.range(at: 1))
                 guard let number = Int(lineNS.substring(with: match.range(at: 2))) else { return false }
                 let delim = lineNS.substring(with: match.range(at: 3))
@@ -789,6 +793,9 @@ struct MarkdownTextView: NSViewRepresentable {
             }
 
             if let match = Self.unorderedListLineRegex.firstMatch(in: line, range: fullLineRange) {
+                let contentStart = lineRange.location + match.range(at: 4).location
+                guard selRange.location >= contentStart else { return false }
+
                 let indent = lineNS.substring(with: match.range(at: 1))
                 let bullet = lineNS.substring(with: match.range(at: 2))
                 let hasCheckbox = match.range(at: 3).location != NSNotFound

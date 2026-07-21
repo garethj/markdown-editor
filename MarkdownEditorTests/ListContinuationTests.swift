@@ -69,13 +69,43 @@ final class ListContinuationTests: XCTestCase {
         XCTAssertEqual(textView.string, "- [x] done\n- [ ] ")
     }
 
-    func testReturnMidLineIsNotIntercepted() {
+    func testReturnMidLineSplitsUnorderedItemWithNewBullet() {
         let coordinator = makeCoordinator()
         guard let textView = coordinator.textView else { return XCTFail() }
         textView.string = "- item one"
-        textView.setSelectedRange(NSRange(location: 4, length: 0)) // inside "item"
+        textView.setSelectedRange(NSRange(location: 4, length: 0)) // "- it|em one"
 
-        XCTAssertFalse(pressReturn(coordinator, in: textView), "mid-line Return should fall through to default handling")
+        XCTAssertTrue(pressReturn(coordinator, in: textView))
+        XCTAssertEqual(textView.string, "- it\n- em one")
+    }
+
+    func testReturnMidLineSplitsOrderedItemWithNextNumber() {
+        let coordinator = makeCoordinator()
+        guard let textView = coordinator.textView else { return XCTFail() }
+        textView.string = "1. first item"
+        textView.setSelectedRange(NSRange(location: 4, length: 0)) // "1. f|irst item"
+
+        XCTAssertTrue(pressReturn(coordinator, in: textView))
+        XCTAssertEqual(textView.string, "1. f\n2. irst item")
+    }
+
+    func testReturnMidLineCarriesCheckboxMarkerToSplitItem() {
+        let coordinator = makeCoordinator()
+        guard let textView = coordinator.textView else { return XCTFail() }
+        textView.string = "- [ ] task one"
+        textView.setSelectedRange(NSRange(location: 7, length: 0)) // "- [ ] t|ask one"
+
+        XCTAssertTrue(pressReturn(coordinator, in: textView))
+        XCTAssertEqual(textView.string, "- [ ] t\n- [ ] ask one")
+    }
+
+    func testReturnInsideMarkerIsNotIntercepted() {
+        let coordinator = makeCoordinator()
+        guard let textView = coordinator.textView else { return XCTFail() }
+        textView.string = "- item one"
+        textView.setSelectedRange(NSRange(location: 1, length: 0)) // "-| item one", before the marker's space
+
+        XCTAssertFalse(pressReturn(coordinator, in: textView), "Return inside the marker/indent should fall through to default handling")
     }
 
     func testReturnOnNonListLineIsNotIntercepted() {
