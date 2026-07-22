@@ -500,8 +500,12 @@ final class MarkdownStyleMapTests: XCTestCase {
     /// the paragraph's left margin — this is what headIndent controls.
     /// firstLineHeadIndent must stay 0 since the first line's own indent
     /// already comes from real marker/space characters in the source.
+    ///
+    /// Source text must run at least 60 characters (see
+    /// `testHangingIndentSkippedForShortLinesRegardlessOfNesting` below for
+    /// why) purely to satisfy that gate — it isn't what this test is about.
     func testTopLevelBulletItemGetsPositiveHeadIndentWithZeroFirstLineIndent() {
-        let source = "- Some list item text\n"
+        let source = "- Some list item text long enough to plausibly wrap in a window\n"
         let map = MarkdownStyleMap(text: source)
         guard let element = map.elements.first(where: {
             ($0.attributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent ?? 0 > 0
@@ -514,19 +518,19 @@ final class MarkdownStyleMapTests: XCTestCase {
         // Covers the whole physical line, not just the "- " prefix, since
         // NSParagraphStyle's headIndent/firstLineHeadIndent are read per
         // paragraph (line), not per sub-range.
-        XCTAssertEqual(text(element.fullRange, in: source), "- Some list item text")
+        XCTAssertEqual(text(element.fullRange, in: source), "- Some list item text long enough to plausibly wrap in a window")
     }
 
     /// A nested item's indent must be measurably larger than its parent's —
     /// otherwise a wrapped nested line would visually align with the parent
     /// list's text instead of its own.
     func testNestedListItemHasLargerHeadIndentThanTopLevel() {
-        let topSource = "- top\n"
-        let nestedSource = "- top\n  - nested\n"
+        let topSource = "- top level item with enough text to clear the wrap-plausibility gate\n"
+        let nestedSource = "- top level item with enough text to clear the wrap-plausibility gate\n  - nested item that also clears the same length gate on its own\n"
         let topIndent = headIndent(in: MarkdownStyleMap(text: topSource))
         let nestedMap = MarkdownStyleMap(text: nestedSource)
         // The nested item's own indent is the larger of the two headIndent
-        // values present (the top-level "- top" line also has one).
+        // values present (the top-level line also has one).
         let allIndents = nestedMap.elements.compactMap { ($0.attributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent }.filter { $0 > 0 }
         guard let topIndent, let maxNestedIndent = allIndents.max() else {
             return XCTFail("expected headIndent values for both items")
@@ -538,8 +542,8 @@ final class MarkdownStyleMapTests: XCTestCase {
     /// measured indent — the indent is based on rendered prefix width, not
     /// a fixed guess, so it should track the marker's actual character count.
     func testOrderedListWiderMarkerProducesLargerHeadIndent() {
-        let narrowIndent = headIndent(in: MarkdownStyleMap(text: "1. item\n"))
-        let wideIndent = headIndent(in: MarkdownStyleMap(text: "10. item\n"))
+        let narrowIndent = headIndent(in: MarkdownStyleMap(text: "1. an item with enough trailing text to clear the length gate\n"))
+        let wideIndent = headIndent(in: MarkdownStyleMap(text: "10. an item with enough trailing text to clear the length gate\n"))
         guard let narrowIndent, let wideIndent else {
             return XCTFail("expected headIndent values for both ordered items")
         }
@@ -552,10 +556,28 @@ final class MarkdownStyleMapTests: XCTestCase {
     /// the visible "[ ]" bracket — not silently skipped because the marker
     /// itself contributes no width.
     func testCheckboxListItemGetsPositiveHeadIndent() {
-        let source = "- [ ] Some task\n"
+        let source = "- [ ] Some task with enough trailing text to clear the length gate\n"
         let indent = headIndent(in: MarkdownStyleMap(text: source))
         XCTAssertNotNil(indent)
         XCTAssertGreaterThan(indent ?? 0, 0)
+    }
+
+    /// Regression: applying a nonzero `NSParagraphStyle.headIndent` to a list
+    /// item's line — even with firstLineHeadIndent correctly left at 0 —
+    /// was found (empirically, in the real app, not explained by anything in
+    /// this file) to visibly shift that line's *first* rendering rightward
+    /// by exactly the headIndent amount, for any paragraph other than the
+    /// very first one in the whole document. Concretely: pasting a plain
+    /// two-item checklist ("- [ ] A\n- [ ] B\n") rendered item A's checkbox
+    /// flush left as expected, but item B's checkbox 59px further right —
+    /// misaligning every list item after the first one in any list, task or
+    /// not. Since hanging indent only ever matters for a line that actually
+    /// wraps, and most list items (checklists especially) don't, short lines
+    /// must not get a headIndent element created for them at all.
+    func testHangingIndentSkippedForShortLinesRegardlessOfNesting() {
+        let source = "- [ ] A\n- [ ] B\n"
+        let map = MarkdownStyleMap(text: source)
+        XCTAssertNil(headIndent(in: map), "a short list item's line should not get a hanging-indent paragraph style at all")
     }
 
     // MARK: - Tables
@@ -758,5 +780,31 @@ final class MarkdownStyleMapTests: XCTestCase {
         let map = MarkdownStyleMap(text: source)
         let bulletMarkers = map.elements.filter { text($0.fullRange, in: source) == "*" }
         XCTAssertEqual(bulletMarkers.count, 1, "only the parent's own marker should be recognized as a list-bullet element")
+    }
+
+    /// Regression: checking a task item whose text is followed by a nested
+    /// sub-list used to grey out (via `checkedTaskTextAttributes`) not just
+    /// the task's own text but the *entire nested sub-list's* text too —
+    /// because `listItem.range` (used to bound the dimming range) spans a
+    /// checkbox item's nested children as well as its own paragraph, in
+    /// cmark-swift/swift-markdown's block structure. Only the task's own
+    /// first child (its own paragraph, "Location acceptable?") should dim;
+    /// the nested items are a separate, unrelated list and shouldn't visibly
+    /// react to their parent's checked state at all.
+    func testCheckedTaskDimmingDoesNotBleedIntoNestedSublist() {
+        let source = "- [x] Location acceptable?\n  - Fully remote\n  - Second\n"
+        let map = MarkdownStyleMap(text: source)
+        let ownTextRange = (source as NSString).range(of: "Location acceptable?")
+        let nestedRange = (source as NSString).range(of: "Fully remote")
+
+        let dimmed = map.elements.filter { $0.attributes[.foregroundColor] != nil && $0.attributes[.font] == nil }
+        XCTAssertTrue(
+            dimmed.contains { NSEqualRanges($0.fullRange, NSRange(location: ownTextRange.location, length: NSMaxRange(ownTextRange) - ownTextRange.location)) || $0.fullRange.contains(ownTextRange.location) },
+            "the task's own text should still be dimmed when checked"
+        )
+        XCTAssertFalse(
+            dimmed.contains { NSIntersectionRange($0.fullRange, nestedRange).length > 0 },
+            "a checked parent task must not dim its nested sub-list's text"
+        )
     }
 }

@@ -909,6 +909,21 @@ struct MarkdownTextView: NSViewRepresentable {
 
             let newBracket = checkbox.checked ? "[ ]" : "[x]"
             textView.window?.makeFirstResponder(textView)
+            // Move the selection to the checkbox *before* the edit, not
+            // after. textDidChange (and its updateCursorReveal call) fires
+            // synchronously from inside insertText(_:replacementRange:),
+            // before this method gets control back — so setting the
+            // selection afterwards is too late to affect that first pass.
+            // If the selection was left stale — far away, e.g. at the end of
+            // a long document, from before this click, since
+            // insertText(_:replacementRange:) doesn't reliably move the
+            // selection to track an edit made away from wherever it already
+            // was — updateCursorReveal() reads that stale selectedRange(),
+            // invalidates glyphs/layout way over there, and AppKit
+            // auto-scrolls to keep the (still-stale) selection visible: the
+            // document jumps to wherever the cursor last was, not to the
+            // checkbox just clicked.
+            textView.setSelectedRange(NSRange(location: checkbox.range.location, length: 0))
             textView.insertText(newBracket, replacementRange: checkbox.range)
             return true
         }

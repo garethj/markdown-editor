@@ -549,9 +549,23 @@ private struct StyleWalker: MarkupWalker {
                 // item's inline content below, so nested styling (bold,
                 // links, inline code) still applies its own attributes on
                 // top rather than being overridden by this dimming.
+                //
+                // Bounded to the item's own first child block (its own
+                // paragraph), not the item's full source range: for a task
+                // with a nested sub-list, listItem.range spans the nested
+                // list too (cmark-swift/swift-markdown nest sub-blocks
+                // inside the parent ListItem's range), so using
+                // NSMaxRange(itemNS) here used to greatly dim the ENTIRE
+                // nested sub-list's text just because the parent task got
+                // checked — a real regression, confirmed via
+                // testCheckedTaskDimmingDoesNotBleedIntoNestedSublist.
                 if checked {
                     let textStart = NSMaxRange(bracketRange)
-                    let textRange = NSRange(location: textStart, length: NSMaxRange(itemNS) - textStart)
+                    var childIterator = listItem.children.makeIterator()
+                    let firstChild: Markup? = childIterator.next()
+                    let ownContentEnd = firstChild.flatMap(\.range).flatMap(converter.nsRange(for:))
+                        .map(NSMaxRange) ?? NSMaxRange(itemNS)
+                    let textRange = NSRange(location: textStart, length: max(0, ownContentEnd - textStart))
                     if textRange.length > 0 {
                         elements.append(StyledElement(
                             fullRange: textRange,
@@ -644,6 +658,30 @@ private struct StyleWalker: MarkupWalker {
 
         let indentWidth = measured.size().width
         guard indentWidth > 0 else { return }
+
+        // Only worth paying for on lines with a real chance of wrapping.
+        // NSParagraphStyle.headIndent is documented to affect only a
+        // paragraph's *continuation* lines, with firstLineHeadIndent (left
+        // at 0 above) governing the first — but confirmed empirically in
+        // this app's text view, a nonzero headIndent visibly shifts the
+        // first line too, for any paragraph other than the very first one in
+        // the whole document (reproduced with a plain two-item checklist,
+        // no markdown-specific state involved: paragraph 1's own first line
+        // renders unaffected by its own headIndent, but paragraph 2's first
+        // line — and every paragraph after it — shifts right by exactly its
+        // headIndent value). The mechanism wasn't pinned down further, but
+        // it's real and severe: it visibly misaligns basically every list
+        // item after the first one in any list, checkbox or not. Since
+        // hanging indent is only ever *useful* for a line that actually
+        // wraps, and most list items (checklists especially) don't, gate it
+        // on a conservative "this line is long enough to plausibly wrap in a
+        // reasonably-sized window" character-count proxy — a real content
+        // width isn't available at this layer (StyleMap has no notion of the
+        // text container's width). This trades away the hanging indent for
+        // long-but-not-quite-wrapping lines in a narrow window (a minor
+        // cosmetic miss) in exchange for never re-triggering the shift for
+        // the much more common short-item case.
+        guard lineEnd - lineStart >= 60 else { return }
 
         let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
         elements.append(StyledElement(
