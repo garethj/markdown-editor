@@ -48,7 +48,7 @@ xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destin
 
 **This takes over the physical mouse and keyboard while it runs** — real windows come to the front, real clicks and keystrokes are synthesized on the actual display, a real save panel gets driven. It's genuinely disruptive to use the laptop for anything else while it runs.
 
-**Current run time: ~2 minutes for 7 tests** (last measured 2026-07-18: `xcodebuild`'s own reported test time was 115s / 1m56s; wall-clock via `time` was 2m4s — use the larger, wall-clock figure when telling the user). Tell the user this figure (or your more recent one, see below) when you offer to run it, so they know how long to stay off the laptop — don't just say "a couple of minutes" without a number.
+**Current run time: ~2.5 minutes for 9 tests** (last measured 2026-07-22: `xcodebuild`'s own reported test time was 148s / 2m28s; wall-clock via the IDE test-operations log was 154s / 2m34s — use the larger, wall-clock figure when telling the user). Tell the user this figure (or your more recent one, see below) when you offer to run it, so they know how long to stay off the laptop — don't just say "a couple of minutes" without a number.
 
 **Keep this figure current.** Whenever you add, remove, or meaningfully change a test in `MarkdownEditorUITests` (a new test class/method, a change to sleep/timeout durations, a new save-panel round trip, etc.), re-run the full suite once with `time` wrapped around the command above, and update the figure in this paragraph to match — both the test count and the duration. Don't leave a stale number here; a wrong estimate defeats the point of telling the user how long to stay away.
 

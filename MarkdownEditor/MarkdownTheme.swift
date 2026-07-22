@@ -304,4 +304,33 @@ final class MarkdownTheme {
         para.headIndent = headIndent
         return para
     }
+
+    /// Explicit color-emoji font for emoji-presentation grapheme clusters,
+    /// stamped on top of whatever font styling already resolved at that
+    /// range (see MarkdownTextStorage.applyEmojiFontOverrides). Every other
+    /// run in this file shares one plain system font (rounded SF) across
+    /// emoji and non-emoji text alike, leaving emoji glyph resolution to
+    /// AppKit's own font-cascade substitution at glyph-generation time —
+    /// which was found to behave correctly on a full initial layout pass but
+    /// corrupt or blank the glyph on an incremental relayout pass (e.g.
+    /// triggered by any nearby edit). Giving emoji characters their own
+    /// explicit `.font` attribute means NSLayoutManager decides the correct
+    /// font for that glyph run *before* generating glyphs, rather than via
+    /// substitution deep inside a single font's cascade — sidestepping the
+    /// bug instead of trying to correct it after the fact. Can't be
+    /// pre-cached like the other attribute dicts (size varies per call, same
+    /// as listItemParagraphStyle(headIndent:) above — a heading's emoji
+    /// needs a bigger font than body text's).
+    func emojiFont(size: CGFloat) -> NSFont {
+        // "Apple Color Emoji" (no leading dot) is the font's real, public
+        // PostScript name — freely resolvable via NSFont(name:). The
+        // private ".AppleColorEmojiUI" name NSLayoutManager itself resolves
+        // to internally is gated behind "proper system UI font access"
+        // (CoreText logs "Client requested name '.AppleColorEmojiUI', it
+        // will get TimesNewRomanPSMT rather than the intended font" for any
+        // caller without that access) and was observed to flip-flop between
+        // resolving correctly and silently substituting even within the
+        // same process — not a usable target for our own code to request.
+        NSFont(name: "Apple Color Emoji", size: size) ?? NSFont.systemFont(ofSize: size)
+    }
 }

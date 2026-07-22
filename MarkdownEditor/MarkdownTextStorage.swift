@@ -200,6 +200,12 @@ final class MarkdownTextStorage: NSTextStorage {
             styleMap.appendElements(highlightElements)
         }
 
+        // Must run after every other attribute pass above (see
+        // applyEmojiFontOverrides) so its explicit font stamp on emoji
+        // characters wins over whatever font the element/highlight loops
+        // just set for that same range.
+        applyEmojiFontOverrides(text: text, range: effectiveDirtyRange)
+
         // Update delimiter ranges on layout delegates BEFORE glyph generation.
         for lm in layoutManagers {
             (lm.delegate as? MarkdownLayoutManagerDelegate)?.updateDelimiters(from: styleMap)
@@ -305,6 +311,30 @@ final class MarkdownTextStorage: NSTextStorage {
             ))
         }
         return elements
+    }
+
+    // MARK: - Emoji font override
+
+    /// Stamps an explicit "Apple Color Emoji" font onto every emoji
+    /// grapheme cluster in `range`, overriding whatever font attribute the
+    /// base/element/highlight styling passes above just set there. See
+    /// MarkdownTheme.emojiFont(size:) for why this exists. Uses
+    /// `isEmojiPresentation` (default-emoji-rendering codepoints like the
+    /// dingbats used in checklists: ✅❌🟡) plus an explicit check for a
+    /// trailing VS16 (U+FE0F) selector, so emoji that only render as emoji
+    /// via that selector are still caught.
+    private func applyEmojiFontOverrides(text: String, range: NSRange) {
+        guard let stringRange = Range(range, in: text) else { return }
+        text.enumerateSubstrings(in: stringRange, options: .byComposedCharacterSequences) { [self] substring, subRange, _, _ in
+            guard let substring,
+                  substring.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation || $0.value == 0xFE0F })
+            else { return }
+            let nsSubRange = NSRange(subRange, in: text)
+            guard nsSubRange.length > 0 else { return }
+            let existingSize = (backingStore.attribute(.font, at: nsSubRange.location, effectiveRange: nil) as? NSFont)?.pointSize
+                ?? MarkdownTheme.shared.defaultFont.pointSize
+            backingStore.addAttributes([.font: MarkdownTheme.shared.emojiFont(size: existingSize)], range: nsSubRange)
+        }
     }
 
     // MARK: - Font trait merging

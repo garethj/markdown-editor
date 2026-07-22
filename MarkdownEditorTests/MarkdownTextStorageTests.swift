@@ -329,6 +329,72 @@ final class MarkdownTextStorageTests: XCTestCase {
                       "location == length is one past the last valid index")
     }
 
+    // MARK: - Emoji font override
+
+    /// Regression: emoji characters (✅❌🟡 etc.) had no explicit font
+    /// attribute of their own — like all plain text, they inherited the one
+    /// shared rounded system font, leaving color-emoji glyph resolution
+    /// entirely to AppKit's own font-cascade substitution at
+    /// glyph-generation time. That substitution was found (via
+    /// shouldGenerateGlyphs debug logging) to behave correctly on the
+    /// initial full-document layout but corrupt the glyph into an unrelated
+    /// character, or blank it, on an *incremental* relayout pass — e.g. one
+    /// triggered by clicking a checkbox on another line. Stamping an
+    /// explicit "Apple Color Emoji" font onto emoji grapheme clusters means
+    /// the correct font is decided up front, not discovered via a fallback
+    /// substitution that only works reliably on a full layout pass.
+    func testEmojiCharacterGetsExplicitColorEmojiFont() {
+        let source = "Status: \u{274C} done"
+        let storage = makeStorage(source)
+        let idx = (source as NSString).range(of: "\u{274C}").location
+        let font = attributes(at: idx, in: storage)[.font] as? NSFont
+        XCTAssertEqual(font?.fontName, "AppleColorEmoji")
+    }
+
+    /// A grapheme cluster that only renders as emoji via an explicit VS16
+    /// (U+FE0F) selector — not every emoji has Emoji_Presentation=Yes by
+    /// default — must still get the color font.
+    func testEmojiWithVariationSelectorGetsExplicitColorEmojiFont() {
+        let source = "Rating: \u{2764}\u{FE0F} good"
+        let storage = makeStorage(source)
+        // .literal: the default (grapheme-cluster-aware) search never
+        // matches a bare scalar that's only part of a larger cluster —
+        // the heart alone is mid-cluster once followed by VS16.
+        let idx = (source as NSString).range(of: "\u{2764}", options: .literal).location
+        let font = attributes(at: idx, in: storage)[.font] as? NSFont
+        XCTAssertEqual(font?.fontName, "AppleColorEmoji")
+    }
+
+    /// Regression matching the exact real-world repro: clicking a checkbox
+    /// to check it turned an unrelated emoji bullet a couple of lines below
+    /// it into a garbled glyph. The checkbox edit only touches its own line
+    /// directly, but a parent list item's own styled range spans its nested
+    /// children (see the nested-dimming-bleed fix in MarkdownStyleMapTests),
+    /// so effectiveDirtyRange widens to cover the whole nested sublist and
+    /// triggers an *incremental* (not full) restyle of the emoji lines too
+    /// — precisely the relayout path found to corrupt emoji glyphs. Confirms
+    /// the emoji's explicit font attribute survives an edit elsewhere in the
+    /// document, not just the initial full parse.
+    func testEmojiFontOverrideSurvivesCheckboxToggleOnAnotherLine() {
+        let source = "- [ ] Parent task\n  - \u{2705} Sub item one\n  - \u{274C} Sub item two\n"
+        let storage = makeStorage(source)
+        let nsSource = source as NSString
+        let checkboxRange = nsSource.range(of: "[ ]")
+        let firstEmojiIdx = nsSource.range(of: "\u{2705}").location
+        let secondEmojiIdx = nsSource.range(of: "\u{274C}").location
+
+        // Simulate clicking the checkbox: replace "[ ]" with "[x]", an edit
+        // scoped to a different line than either emoji.
+        storage.replaceCharacters(in: checkboxRange, with: "[x]")
+
+        let firstFont = attributes(at: firstEmojiIdx, in: storage)[.font] as? NSFont
+        let secondFont = attributes(at: secondEmojiIdx, in: storage)[.font] as? NSFont
+        XCTAssertEqual(firstFont?.fontName, "AppleColorEmoji",
+                       "emoji font override should survive an incremental edit on another line (first)")
+        XCTAssertEqual(secondFont?.fontName, "AppleColorEmoji",
+                       "emoji font override should survive an incremental edit on another line (second)")
+    }
+
     private func markerColor(in storage: MarkdownTextStorage, lineIndex: Int) -> NSColor? {
         let lines = storage.string.components(separatedBy: "\n")
         guard lineIndex < lines.count else { return nil }
