@@ -26,10 +26,10 @@ final class MarkdownPDFExporter: NSObject, WKNavigationDelegate {
         let printInfo = NSPrintInfo()
         // A4: 210mm × 297mm in points (1pt = 1/72 in)
         printInfo.paperSize = NSSize(width: 595.28, height: 841.89)
-        printInfo.leftMargin   = 70.87   // 25mm
-        printInfo.rightMargin  = 70.87
-        printInfo.topMargin    = 56.69   // 20mm
-        printInfo.bottomMargin = 56.69
+        printInfo.leftMargin   = 51.02   // 18mm
+        printInfo.rightMargin  = 51.02
+        printInfo.topMargin    = 42.52   // 15mm
+        printInfo.bottomMargin = 42.52
         printInfo.horizontalPagination = .fit
         printInfo.isVerticallyCentered = false
 

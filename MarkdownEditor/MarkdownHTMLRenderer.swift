@@ -234,11 +234,15 @@ struct MarkdownHTMLRenderer {
     // MARK: - CSS
 
     private static let css = """
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+        }
         body {
             font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
-            font-size: 15px;
-            line-height: 1.65;
+            font-size: 13.5px;
+            line-height: 1.5;
             color: #2c2c2e;
             max-width: 680px;
             margin: 0 auto;
@@ -246,52 +250,53 @@ struct MarkdownHTMLRenderer {
         }
         h1, h2, h3, h4, h5, h6 {
             font-weight: 700;
-            color: #1c1c1e;
+            color: #1a1a1f;
             line-height: 1.25;
-            margin-top: 1.5em;
+            margin-top: 1.1em;
             margin-bottom: 0.4em;
             page-break-after: avoid;
         }
-        h1 { font-size: 1.9em; margin-top: 0.5em; }
+        h1 { font-size: 1.9em; margin-top: 0.4em; }
         h2 { font-size: 1.45em; }
         h3 { font-size: 1.2em; }
         h4 { font-size: 1.05em; }
         h5 { font-size: 1em; }
         h6 { font-size: 0.9em; color: #636366; }
-        p { margin: 0 0 0.85em; }
+        p { margin: 0 0 0.65em; }
         strong { font-weight: 700; }
         em { font-style: italic; }
-        del { text-decoration: line-through; color: #8e8e93; }
-        mark { background: #fff3b0; border-radius: 3px; padding: 1px 4px; }
-        a { color: #0071e3; text-decoration: none; }
+        del { text-decoration: line-through; }
+        mark { background: rgba(255, 242, 77, 0.5); border-radius: 3px; padding: 1px 4px; }
+        a { color: #b85c4d; text-decoration: none; }
         code {
             font-family: "SF Mono", Menlo, Consolas, monospace;
             font-size: 0.875em;
-            background: rgba(0,0,0,0.05);
+            background: rgba(0,0,0,0.04);
             border-radius: 4px;
             padding: 1px 5px;
-            color: #c0392b;
+            color: #c73d3d;
         }
         pre {
-            background: #f5f5f7;
+            background: rgba(0,0,0,0.04);
             border-radius: 8px;
-            padding: 16px;
+            padding: 12px;
             overflow-x: auto;
-            margin: 0 0 1em;
+            margin: 0 0 0.85em;
             page-break-inside: avoid;
         }
         pre code { background: none; padding: 0; color: #2c2c2e; font-size: 0.875em; }
         blockquote {
-            border-left: 3px solid #d1d1d6;
-            margin: 1em 0;
+            border-left: 3px solid #b85c4d;
+            margin: 0.8em 0;
             padding: 0 1em;
             color: #636366;
         }
         blockquote p:last-child { margin-bottom: 0; }
-        ul { padding-left: 1.75em; margin: 0 0 0.85em; }
-        ol { padding-left: 2.5em; margin: 0 0 0.85em; }
-        li { margin-bottom: 0.3em; }
-        li > p { margin-bottom: 0.4em; }
+        ul { padding-left: 1.75em; margin: 0 0 0.65em; }
+        ol { padding-left: 2.5em; margin: 0 0 0.65em; }
+        li::marker { color: #b85c4d; }
+        li { margin-bottom: 0.2em; }
+        li > p { margin-bottom: 0.3em; }
         li > ul, li > ol { margin-top: 0.25em; margin-bottom: 0; }
         li.task {
             list-style: none;
@@ -307,17 +312,17 @@ struct MarkdownHTMLRenderer {
         }
         li.task > .task-body { flex: 1; }
         li.task > .task-body > p { margin: 0; }
-        hr { border: none; border-top: 1px solid #e5e5ea; margin: 2em 0; }
-        img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+        hr { border: none; border-top: 2px solid #b85c4d; margin: 1.5em 0; }
+        img { max-width: 100%; height: auto; display: block; margin: 0.85em auto; }
         table {
             border-collapse: collapse;
             width: 100%;
-            margin: 0 0 1em;
+            margin: 0 0 0.85em;
             font-size: 0.9em;
             page-break-inside: avoid;
         }
-        th, td { border: 1px solid #e5e5ea; padding: 8px 12px; text-align: left; vertical-align: top; }
-        th { background: #f5f5f7; font-weight: 600; color: #1c1c1e; }
+        th, td { border: 1px solid #e5e5ea; padding: 6px 10px; text-align: left; vertical-align: top; }
+        th { background: rgba(0,0,0,0.04); font-weight: 600; color: #1a1a1f; }
         tr:nth-child(even) td { background: #fafafa; }
         @media print {
             body { max-width: none; padding: 0; margin: 0; }
