@@ -103,8 +103,19 @@ final class CheckboxUITests: XCTestCase {
         // moving the cursor away from the end — the cursor staying far away
         // is the reported repro condition, not merely "cursor not exactly on
         // the checkbox's line."
-        for _ in 0..<40 {
-            textView.scroll(byDeltaX: 0, deltaY: 15)
+        //
+        // The scroll distance needed to reach the very top depends on the
+        // window's actual height (however many lines fit determines how far
+        // "scrolled to the bottom of 63 lines" is from "scrolled to the
+        // top"), which isn't under this test's control — a fixed distance
+        // tuned for one window size silently under-scrolls on a differently
+        // sized window and leaves the checkbox off the expected offset
+        // (confirmed: 40×15pt=600pt reliably under-scrolled a normal
+        // 900×700 window here). Deliberately over-scroll by a large, safe
+        // margin instead — NSScrollView clamps at the top, so this reaches
+        // exactly y=0 regardless of window size.
+        for _ in 0..<20 {
+            textView.scroll(byDeltaX: 0, deltaY: 150)
         }
         Thread.sleep(forTimeInterval: 0.3)
 
