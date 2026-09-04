@@ -20,7 +20,7 @@ final class MarkdownTheme {
     private(set) var codeColor: NSColor
     private(set) var codeBackgroundColor: NSColor
     private(set) var linkColor: NSColor
-    private(set) var blockQuoteColor: NSColor
+    private(set) var blockQuoteBackgroundColor: NSColor
     private(set) var highlightColor: NSColor
     private(set) var delimiterColor: NSColor
     private(set) var backgroundColor: NSColor
@@ -61,7 +61,7 @@ final class MarkdownTheme {
         codeBackgroundColor = .clear
         linkColor = .linkColor
         highlightColor = .yellow
-        blockQuoteColor = .secondaryLabelColor
+        blockQuoteBackgroundColor = .clear
         delimiterColor = .tertiaryLabelColor
         backgroundColor = .textBackgroundColor
         cursorColor = .textColor
@@ -114,7 +114,10 @@ final class MarkdownTheme {
         highlightColor = isDark
             ? NSColor(calibratedRed: 0.6, green: 0.55, blue: 0.1, alpha: 0.4)
             : NSColor(calibratedRed: 1.0, green: 0.95, blue: 0.3, alpha: 0.5)
-        blockQuoteColor = .secondaryLabelColor
+        // A tint of the same accent used for the ">" marker/links/bullets,
+        // so a quote reads as a prominent, colored block rather than faded
+        // text — low alpha so body text stays fully legible on top of it.
+        blockQuoteBackgroundColor = linkColor.withAlphaComponent(isDark ? 0.16 : 0.10)
         delimiterColor = .tertiaryLabelColor
         backgroundColor = isDark
             ? NSColor(calibratedRed: 0.15, green: 0.15, blue: 0.17, alpha: 1)
@@ -158,8 +161,15 @@ final class MarkdownTheme {
         let blockQuotePara = NSMutableParagraphStyle()
         blockQuotePara.lineSpacing = 3
         blockQuotePara.paragraphSpacing = 4
+        // Inset the whole block a little from the text column's margins so
+        // the tinted background reads as a distinct callout rather than
+        // text merely highlighted flush against the container edge.
+        blockQuotePara.firstLineHeadIndent = 8
+        blockQuotePara.headIndent = 8
+        blockQuotePara.tailIndent = -8
         blockQuoteAttributes = [
-            .foregroundColor: blockQuoteColor,
+            .foregroundColor: defaultColor,
+            .backgroundColor: blockQuoteBackgroundColor,
             .paragraphStyle: blockQuotePara,
         ]
         // The literal ">" marker, colored with the same accent used for
