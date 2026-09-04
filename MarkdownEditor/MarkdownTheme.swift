@@ -161,12 +161,14 @@ final class MarkdownTheme {
         let blockQuotePara = NSMutableParagraphStyle()
         blockQuotePara.lineSpacing = 3
         blockQuotePara.paragraphSpacing = 4
-        // Inset the whole block a little from the text column's margins so
-        // the tinted background reads as a distinct callout rather than
-        // text merely highlighted flush against the container edge.
-        blockQuotePara.firstLineHeadIndent = 8
-        blockQuotePara.headIndent = 8
-        blockQuotePara.tailIndent = -8
+        // No headIndent/firstLineHeadIndent here on purpose: this app's text
+        // view has a confirmed quirk (see appendListContinuationIndent's
+        // comment in MarkdownStyleMap.swift) where a nonzero headIndent
+        // visibly misaligns a paragraph's first line vs. its continuation
+        // lines in ways that don't match Apple's documented behavior — it's
+        // what caused first-line/second-line background misalignment when
+        // this was tried. The tinted background just hugs the text instead,
+        // same as the existing inline-code/highlight treatment.
         blockQuoteAttributes = [
             .foregroundColor: defaultColor,
             .backgroundColor: blockQuoteBackgroundColor,
