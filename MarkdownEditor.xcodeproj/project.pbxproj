@@ -30,6 +30,7 @@
 		7A0000000000000000000004 /* ListContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000004 /* ListContinuationTests.swift */; };
 		7A0000000000000000000005 /* MarkdownDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000005 /* MarkdownDocumentTests.swift */; };
 		7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000006 /* ExternalChangeResolverTests.swift */; };
+		7A0000000000000000000007 /* EditingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000011 /* EditingPerformanceTests.swift */; };
 		8A0000000000000000000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000001 /* UITestSupport.swift */; };
 		8A0000000000000000000002 /* LayoutUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000002 /* LayoutUITests.swift */; };
 		8A0000000000000000000003 /* CheckboxUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000003 /* CheckboxUITests.swift */; };
@@ -64,6 +65,7 @@
 		7B0000000000000000000004 /* ListContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListContinuationTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000005 /* MarkdownDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000006 /* ExternalChangeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeResolverTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000011 /* EditingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditingPerformanceTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000007 /* MarkdownEditorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkdownEditorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8B0000000000000000000001 /* UITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestSupport.swift; sourceTree = "<group>"; };
 		8B0000000000000000000002 /* LayoutUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutUITests.swift; sourceTree = "<group>"; };
@@ -144,6 +146,7 @@
 				7B0000000000000000000004 /* ListContinuationTests.swift */,
 				7B0000000000000000000005 /* MarkdownDocumentTests.swift */,
 				7B0000000000000000000006 /* ExternalChangeResolverTests.swift */,
+				7B0000000000000000000011 /* EditingPerformanceTests.swift */,
 			);
 			path = MarkdownEditorTests;
 			sourceTree = "<group>";
@@ -335,6 +338,7 @@
 				7A0000000000000000000004 /* ListContinuationTests.swift in Sources */,
 				7A0000000000000000000005 /* MarkdownDocumentTests.swift in Sources */,
 				7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */,
+				7A0000000000000000000007 /* EditingPerformanceTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

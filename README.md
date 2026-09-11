@@ -65,7 +65,7 @@ cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debu
 
 Two test targets, at different tiers:
 
-- **`MarkdownEditorTests`** — a fast, headless unit suite covering markdown parsing/styling, incremental dirty-region updates, HTML rendering, list-continuation behavior, document save-state, and external-change conflict logic. Runs in well under a second:
+- **`MarkdownEditorTests`** — a fast, headless unit suite covering markdown parsing/styling, incremental dirty-region updates, HTML rendering, list-continuation behavior, document save-state, external-change conflict logic, and per-keystroke editing performance. Runs in well under a second:
 
   ```bash
   xcodebuild test -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -destination 'platform=macOS' -only-testing:MarkdownEditorTests
