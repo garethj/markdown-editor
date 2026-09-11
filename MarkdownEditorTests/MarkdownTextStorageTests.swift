@@ -505,4 +505,69 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertEqual((storage.lastStyleMap?.elements ?? []).map { $0.fullRange },
                        (reference.lastStyleMap?.elements ?? []).map { $0.fullRange })
     }
+
+    // MARK: - Dirty-region scope
+
+    /// The wide-element clipping that replaced dirty-region widening has to
+    /// hold at distance, not just between adjacent lines: editing line 200 of
+    /// a blockquote must leave line 1's marker color alone even though the
+    /// dirty region now comes nowhere near it.
+    func testEditingADistantBlockquoteLineLeavesEarlierMarkersIntact() {
+        var source = ""
+        for i in 0..<200 { source += "> quoted line \(i)\n" }
+        let storage = makeStorage(source)
+        XCTAssertEqual(markerColor(in: storage, lineIndex: 0), MarkdownTheme.shared.linkColor)
+
+        let target = (storage.string as NSString).range(of: "quoted line 190")
+        XCTAssertNotEqual(target.location, NSNotFound)
+        storage.replaceCharacters(in: NSRange(location: NSMaxRange(target), length: 0), with: "!")
+        storage.flushPendingStyling()
+
+        XCTAssertEqual(markerColor(in: storage, lineIndex: 0), MarkdownTheme.shared.linkColor,
+                       "an edit 190 lines away must not disturb this marker's color")
+        XCTAssertEqual(markerColor(in: storage, lineIndex: 199), MarkdownTheme.shared.linkColor)
+    }
+
+    /// The counterpart: a table is the one construct that still widens its
+    /// dirty region to the whole block, because column kerning is computed
+    /// from the widest cell in each column. Widening a cell must re-kern the
+    /// other rows, not just its own.
+    func testWideningACellReKernsOtherRowsOfTheTable() {
+        let source = """
+        | a | b |
+        |---|---|
+        | x | y |
+        | p | q |
+
+        """
+        let storage = makeStorage(source)
+
+        // Kerning lands on the last character of each cell's range (padding
+        // included), not on the cell's text, so collect whatever kern values
+        // the row carries rather than probing one index.
+        func kerns(inRowContaining needle: String) -> [CGFloat] {
+            let ns = storage.string as NSString
+            let found = ns.range(of: needle)
+            guard found.location != NSNotFound else { return [] }
+            var values: [CGFloat] = []
+            storage.enumerateAttribute(.kern, in: ns.lineRange(for: found), options: []) { value, _, _ in
+                if let value = value as? CGFloat { values.append(value) }
+            }
+            return values
+        }
+
+        let before = kerns(inRowContaining: "| p |")
+        XCTAssertFalse(before.isEmpty, "expected the untouched row to carry column kerning")
+
+        // Make the first column much wider, via a cell in a different row.
+        let target = (storage.string as NSString).range(of: "| x |")
+        XCTAssertNotEqual(target.location, NSNotFound)
+        storage.replaceCharacters(in: NSRange(location: target.location + 3, length: 0),
+                                  with: "aaaaaaaaaaaa")
+        storage.flushPendingStyling()
+
+        let after = kerns(inRowContaining: "| p |")
+        XCTAssertNotEqual(before, after,
+                          "widening one row's cell must re-kern the other rows' cells in that column")
+    }
 }

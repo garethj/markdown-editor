@@ -283,35 +283,54 @@ final class MarkdownTextStorage: NSTextStorage {
         let styleMap = MarkdownStyleMap(text: text)
         lastStyleMap = styleMap
 
-        // Widen the dirty region to cover the full range of any element that
-        // merely intersects it. This matters for compound styling — e.g. a
-        // blockquote's own wide "whole block" element plus one small colored
-        // "> " marker element per line: if only the edited line's own narrow
-        // slice were used, editing one line would re-touch the wide element
-        // (which intersects) while a marker element on a *different* line of
-        // the same block wouldn't (its own tiny range doesn't intersect the
-        // narrow dirty region) — so the wide element's re-application would
-        // silently overwrite that marker's color with no chance for it to
-        // reassert itself. Widening ensures every sub-element sharing space
-        // with anything already being restyled gets restyled too.
+        // Widen the dirty region to cover any table it touches — and only a
+        // table. A table's column kerning comes from the widest cell in each
+        // column, so a keystroke in one cell changes the padding every *other*
+        // row needs; it genuinely can't be restyled a few lines at a time.
+        //
+        // Nothing else needs widening, because element attributes are applied
+        // clipped to the dirty region below. That's what makes a narrow region
+        // safe for compound styling — e.g. a blockquote's wide "whole block"
+        // element plus one small colored "> " marker per line. Previously the
+        // wide element was re-applied across its entire range, which would
+        // overwrite the marker color on lines outside the dirty region, so the
+        // region had to be widened to give those markers a chance to reassert
+        // themselves. Clipping means the wide element never reaches them in
+        // the first place, and their existing attributes are left alone.
+        //
+        // The saving is the whole point: editing one line of a 300-line
+        // blockquote or a long code block used to reset and restyle the entire
+        // block, run both regexes over it, and re-scan it for emoji.
         var effectiveDirtyRange = dirtyRange
         if !isFullRestyle {
-            for element in styleMap.elements {
-                guard element.fullRange.location + element.fullRange.length <= fullRange.length else { continue }
-                if NSIntersectionRange(element.fullRange, dirtyRange).length > 0 {
-                    effectiveDirtyRange = NSUnionRange(effectiveDirtyRange, element.fullRange)
-                }
+            for region in styleMap.tableRegions
+            where NSIntersectionRange(region.charRange, dirtyRange).length > 0 {
+                effectiveDirtyRange = NSUnionRange(effectiveDirtyRange, region.charRange)
             }
+            effectiveDirtyRange = NSIntersectionRange(effectiveDirtyRange, fullRange)
         }
 
         // Reset attributes only on the (possibly widened) dirty region
         backingStore.setAttributes(MarkdownTheme.shared.defaultAttributes, range: effectiveDirtyRange)
 
-        // Apply styles: scope to dirty region for incremental, all for full restyle
+        // Apply styles: clipped to the dirty region for incremental, whole
+        // ranges for a full restyle. Clipping is what keeps a wide element
+        // (a long blockquote, a fenced code block) from rewriting attributes
+        // on lines nobody edited — see the widening comment above.
+        //
+        // Order matters and is guaranteed by MarkdownStyleMap's sort: at the
+        // same start location, wider elements come first, so a construct's own
+        // "whole range" element lands before the narrow marker element that
+        // recolors part of it, and the marker wins.
         for element in styleMap.elements {
             guard element.fullRange.location + element.fullRange.length <= fullRange.length else { continue }
-            if isFullRestyle || NSIntersectionRange(element.fullRange, effectiveDirtyRange).length > 0 {
+            if isFullRestyle {
                 applyAttributesMergingFontTraits(element.attributes, range: element.fullRange)
+            } else {
+                let clipped = NSIntersectionRange(element.fullRange, effectiveDirtyRange)
+                if clipped.length > 0 {
+                    applyAttributesMergingFontTraits(element.attributes, range: clipped)
+                }
             }
         }
 

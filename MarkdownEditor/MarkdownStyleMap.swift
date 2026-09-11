@@ -99,7 +99,7 @@ final class MarkdownStyleMap {
         // earlier cell ends up appended after — and thus positioned after in the array —
         // elements for later cells it actually precedes in the document. Sorting once here
         // is cheaper than making every visitor prove it appends in strict document order.
-        self.elements = walker.elements.sorted { $0.fullRange.location < $1.fullRange.location }
+        self.elements = walker.elements.sorted(by: Self.documentOrder)
         self.allDelimiterRanges = walker.elements.flatMap(\.delimiterRanges)
         self.tableRegions = walker.tableRegions
         self.checkboxes = walker.checkboxes
@@ -108,8 +108,28 @@ final class MarkdownStyleMap {
 
     func appendElements(_ newElements: [StyledElement]) {
         elements.append(contentsOf: newElements)
-        elements.sort { $0.fullRange.location < $1.fullRange.location }
+        elements.sort(by: Self.documentOrder)
         allDelimiterRanges.append(contentsOf: newElements.flatMap(\.delimiterRanges))
+    }
+
+    /// Orders elements by start location, and — where two start at the same
+    /// place — widest first.
+    ///
+    /// The width tiebreak isn't cosmetic. `MarkdownTextStorage` applies
+    /// elements in this order with `addAttributes`, which merges rather than
+    /// replaces, so whichever element is applied *last* wins for any attribute
+    /// both of them set. The convention throughout the walker is to append a
+    /// construct's wide "whole range" element first and then a narrow element
+    /// recoloring part of it — a blockquote's "> " marker, a table's pipes, a
+    /// Setext heading's underline — and the narrow one is meant to win.
+    ///
+    /// Both of those start at the same location as their parent, and Swift's
+    /// sort isn't stable, so ordering on location alone left the outcome to
+    /// chance. Ordering widest-first makes the intended result deterministic.
+    private static func documentOrder(_ lhs: StyledElement, _ rhs: StyledElement) -> Bool {
+        lhs.fullRange.location != rhs.fullRange.location
+            ? lhs.fullRange.location < rhs.fullRange.location
+            : lhs.fullRange.length > rhs.fullRange.length
     }
 
 }

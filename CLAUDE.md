@@ -206,7 +206,7 @@ Fixed in `applyExternalText` by fetching the underlying `NSDocument` via the pub
 
 - **Always use `IndexSet` for delimiter lookups**, not `[NSRange]` linear scan — the delegate is called per-glyph.
 - **Attribute dicts must come from `MarkdownTheme.shared`** cached properties, never allocate inline.
-- **`applyMarkdownStyling` scopes attribute application to the dirty region** but always does a full AST parse (cmark limitation). Don't try to skip the full parse.
+- **`applyMarkdownStyling` scopes attribute application to the dirty region** but always does a full AST parse (cmark limitation). Don't try to skip the full parse. Element attributes are applied *clipped* to that region, which is what lets the region stay narrow: a wide element (a long blockquote, a fenced code block) only rewrites the lines being restyled, so narrow marker elements on lines nobody edited keep their own color. Tables are the one exception that still widens to the whole block — column kerning comes from the widest cell in each column, so one cell's edit changes every other row's padding.
 - **Delimiter invalidation happens inside `processEditing`** via `applyMarkdownStyling`. Don't add extra `invalidateGlyphs` calls in `textDidChange` — it causes scroll-to-bottom on every keystroke.
 - **`lastStyleMap` can be one deferral behind the text** (see "Deferred styling"). Call `flushPendingStyling()` before resolving anything positional from it that the user is acting on.
 - The `NSTextView` has `isRichText = false` and smart substitutions disabled; keep it that way.
