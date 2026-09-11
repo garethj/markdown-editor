@@ -147,8 +147,17 @@ final class MarkdownTextStorage: NSTextStorage {
             let shouldDefer = lastStylingDuration > Self.synchronousStylingBudget
                 && Date().timeIntervalSince(lastStylingCompletedAt) < Self.maximumStylingStaleness
 
+            // Fold this edit into the dirty region carried since the last
+            // styling pass, whichever path is taken below. Both settle paths
+            // then style the accumulated region rather than just the latest
+            // edit — otherwise an edit made earlier in a burst, at a position
+            // the latest one's dirty region doesn't reach, would never get
+            // styled at all. That bites exactly when maximumStylingStaleness
+            // forces a settle mid-burst, which for a fast typist is the
+            // normal path, not an edge case.
+            accumulateDeferredEditedRange(edited, delta: delta)
+
             if shouldDefer {
-                accumulateDeferredEditedRange(edited, delta: delta)
                 // Glyph hiding and table geometry are keyed on character
                 // indices that this edit just moved. Shifting them now keeps
                 // the right characters hidden until the real restyle lands;
@@ -157,7 +166,8 @@ final class MarkdownTextStorage: NSTextStorage {
                 adjustCachedRangesForEdit(at: edited, delta: delta)
                 scheduleDeferredStyling()
             } else {
-                pendingEditedRange = edited
+                cancelDeferredStyling()
+                pendingEditedRange = accumulatedDirtyRange()
                 styleNow()
             }
         }
@@ -204,19 +214,28 @@ final class MarkdownTextStorage: NSTextStorage {
     /// say), where working from a map up to `deferralQuietPeriod` out of date
     /// would resolve to the wrong character range.
     func flushPendingStyling() {
-        deferredStylingWorkItem?.cancel()
-        deferredStylingWorkItem = nil
+        cancelDeferredStyling()
         guard deferredEditedRange != nil else { return }
-
-        let length = backingStore.length
-        if let accumulated = deferredEditedRange, length > 0 {
-            let location = max(0, min(accumulated.location, length))
-            pendingEditedRange = NSRange(location: location,
-                                         length: max(0, min(accumulated.length, length - location)))
-        }
+        pendingEditedRange = accumulatedDirtyRange()
         styleNow()
         consumePendingDisplayInvalidation()
         onDeferredStylingComplete?()
+    }
+
+    private func cancelDeferredStyling() {
+        deferredStylingWorkItem?.cancel()
+        deferredStylingWorkItem = nil
+    }
+
+    /// The accumulated dirty region, clamped to the text as it now stands.
+    /// Nil means "no region recorded", which `applyMarkdownStyling` reads as a
+    /// full restyle.
+    private func accumulatedDirtyRange() -> NSRange? {
+        guard let accumulated = deferredEditedRange else { return nil }
+        let length = backingStore.length
+        guard length > 0 else { return nil }
+        let location = max(0, min(accumulated.location, length))
+        return NSRange(location: location, length: max(0, min(accumulated.length, length - location)))
     }
 
     /// Shifts the character indices that glyph hiding and table layout are

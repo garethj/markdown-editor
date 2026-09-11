@@ -570,4 +570,40 @@ final class MarkdownTextStorageTests: XCTestCase {
         XCTAssertNotEqual(before, after,
                           "widening one row's cell must re-kern the other rows' cells in that column")
     }
+
+    /// A burst can touch positions far apart — paste, find-and-replace, or
+    /// just moving the caret while typing. Whichever way the burst settles, it
+    /// has to style every region it touched, not only the latest one.
+    func testABurstTouchingDistantPositionsStylesAllOfThem() {
+        let source = largeStyledDocument()
+        let storage = makeStorage(source)
+        let ns = storage.string as NSString
+
+        // Two edits far enough apart that neither one's dirty region could
+        // possibly reach the other, applied with no chance to settle between.
+        let later = ns.range(of: "Section 150")
+        let earlier = ns.range(of: "Section 10")
+        XCTAssertNotEqual(later.location, NSNotFound)
+        XCTAssertNotEqual(earlier.location, NSNotFound)
+        XCTAssertGreaterThan(later.location - earlier.location, 10_000)
+
+        // Later position first, so the earlier edit doesn't shift it.
+        storage.replaceCharacters(in: NSRange(location: later.location, length: 0), with: "**x** ")
+        storage.replaceCharacters(in: NSRange(location: earlier.location, length: 0), with: "**y** ")
+        storage.flushPendingStyling()
+
+        let reference = makeStorage(storage.string)
+        let updated = storage.string as NSString
+        for marker in ["x", "y"] {
+            let range = updated.range(of: "**\(marker)**")
+            XCTAssertNotEqual(range.location, NSNotFound)
+            let boldAt = range.location + 2
+            XCTAssertEqual(attributes(at: boldAt, in: storage)[.font] as? NSFont,
+                           attributes(at: boldAt, in: reference)[.font] as? NSFont,
+                           "'\(marker)' should be styled bold like a from-scratch parse")
+            XCTAssertTrue(
+                ((attributes(at: boldAt, in: storage)[.font] as? NSFont)?
+                    .fontDescriptor.symbolicTraits.contains(.bold)) ?? false)
+        }
+    }
 }
