@@ -114,6 +114,69 @@ final class MarkdownStyleMap {
 
 }
 
+// MARK: - List prefix width cache
+
+/// Caches the rendered width of list-item marker prefixes.
+///
+/// `StyleWalker.appendListContinuationIndent` needs the on-screen width of a
+/// list item's leading indent plus its marker, so the item's wrapped
+/// continuation lines can hang to line up with its text. Getting that width
+/// means laying the prefix out with CoreText (`NSAttributedString.size()`),
+/// which is the single most expensive step in the AST walk.
+///
+/// Those prefixes repeat heavily — every item in a list shares one, and a
+/// document typically uses a handful of distinct ones ("- ", "  - ", "1. ")
+/// across hundreds of items. The walk re-runs in full on every keystroke, so
+/// without a cache the same few layouts are recomputed thousands of times a
+/// second while typing.
+///
+/// Only ever touched from the AST walk, which runs on the main thread.
+private enum ListPrefixWidthCache {
+    /// The theme rebuilds its fonts on an appearance change, which would
+    /// invalidate every cached width. Cheaper to drop the whole cache than to
+    /// reason about which entries survive.
+    private static var themeGeneration = -1
+    private static var widths: [String: CGFloat] = [:]
+
+    /// Bounded so a pathological document (say, every item indented to a
+    /// different depth) can't grow this without limit. Prefixes are short and
+    /// few in any real document, so this is a safety valve, not a tuning knob.
+    private static let capacity = 512
+
+    /// - Parameters:
+    ///   - indent: leading whitespace and, for a plain list item, its marker.
+    ///   - checkbox: the literal "[ ]"/"[x]" bracket text, rendered in the
+    ///     bold monospace font, or nil for a plain list item.
+    ///   - trailing: whitespace between the checkbox bracket and the item's
+    ///     text; empty for a plain list item.
+    static func width(indent: String, checkbox: String?, trailing: String) -> CGFloat {
+        if themeGeneration != MarkdownTheme.shared.generation {
+            themeGeneration = MarkdownTheme.shared.generation
+            widths.removeAll(keepingCapacity: true)
+        }
+
+        // U+0001 can't occur in a prefix, so it separates the three pieces
+        // unambiguously — "a" + "b" + "" and "a" + "" + "b" stay distinct.
+        let key = "\(indent)\u{1}\(checkbox ?? "")\u{1}\(trailing)"
+        if let cached = widths[key] { return cached }
+
+        let theme = MarkdownTheme.shared
+        let measured = NSMutableAttributedString()
+        measured.append(NSAttributedString(string: indent, attributes: [.font: theme.defaultFont]))
+        if let checkbox {
+            measured.append(NSAttributedString(string: checkbox, attributes: [.font: theme.codeBoldFont]))
+        }
+        if !trailing.isEmpty {
+            measured.append(NSAttributedString(string: trailing, attributes: [.font: theme.defaultFont]))
+        }
+        let width = measured.size().width
+
+        if widths.count >= capacity { widths.removeAll(keepingCapacity: true) }
+        widths[key] = width
+        return width
+    }
+}
+
 // MARK: - AST walker
 
 private struct StyleWalker: MarkupWalker {
@@ -666,32 +729,31 @@ private struct StyleWalker: MarkupWalker {
 
         // Measure the actual prefix's rendered width so nesting depth and
         // marker width ("10." vs "-") both produce a correctly-aligned
-        // indent, rather than guessing from character counts.
-        let measured = NSMutableAttributedString()
+        // indent, rather than guessing from character counts. Split into the
+        // pieces that determine that width so ListPrefixWidthCache can key on
+        // them — the measurement itself is a CoreText layout, and list
+        // prefixes repeat heavily.
+        let indentWidth: CGFloat
         if let checkboxRange {
             // The bullet/number marker before a checkbox is hidden entirely
             // (see the checkbox branch above), so it contributes zero visual
             // width — only the leading indentation and the checkbox bracket
             // itself (in its bold monospace font) count.
-            measured.append(NSAttributedString(
-                string: text.substring(with: NSRange(location: lineStart, length: itemStart - lineStart)),
-                attributes: [.font: MarkdownTheme.shared.defaultFont]))
-            measured.append(NSAttributedString(
-                string: text.substring(with: checkboxRange),
-                attributes: [.font: MarkdownTheme.shared.codeBoldFont]))
             let bracketEnd = NSMaxRange(checkboxRange)
-            if contentStart > bracketEnd {
-                measured.append(NSAttributedString(
-                    string: text.substring(with: NSRange(location: bracketEnd, length: contentStart - bracketEnd)),
-                    attributes: [.font: MarkdownTheme.shared.defaultFont]))
-            }
+            indentWidth = ListPrefixWidthCache.width(
+                indent: text.substring(with: NSRange(location: lineStart, length: itemStart - lineStart)),
+                checkbox: text.substring(with: checkboxRange),
+                trailing: contentStart > bracketEnd
+                    ? text.substring(with: NSRange(location: bracketEnd, length: contentStart - bracketEnd))
+                    : ""
+            )
         } else {
-            measured.append(NSAttributedString(
-                string: text.substring(with: NSRange(location: lineStart, length: contentStart - lineStart)),
-                attributes: [.font: MarkdownTheme.shared.defaultFont]))
+            indentWidth = ListPrefixWidthCache.width(
+                indent: text.substring(with: NSRange(location: lineStart, length: contentStart - lineStart)),
+                checkbox: nil,
+                trailing: ""
+            )
         }
-
-        let indentWidth = measured.size().width
         guard indentWidth > 0 else { return }
 
         let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)

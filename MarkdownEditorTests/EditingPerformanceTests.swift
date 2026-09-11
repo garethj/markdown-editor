@@ -46,11 +46,13 @@ final class EditingPerformanceTests: XCTestCase {
     /// the *number of list items*, not the document's length, because
     /// `StyleWalker.appendListContinuationIndent` lays out each item's marker
     /// prefix with CoreText to measure its width.
-    private func listDocument(items: Int) -> String {
+    private func listDocument(items: Int, short: Bool = true) -> String {
         var out = "# List document\n\n"
         for i in 0..<items {
             if i % 30 == 0 { out += "\n## Group \(i / 30)\n\n" }
-            out += "  - Item \(i) (n tracks)\n"
+            out += short
+                ? "  - Item \(i) (n tracks)\n"
+                : "  - Item \(i) with a considerably longer line of text that comfortably exceeds sixty characters\n"
         }
         return out
     }
@@ -205,19 +207,22 @@ final class EditingPerformanceTests: XCTestCase {
                      quoteNS.length, quoteProseMs, quoteMs, quoteMs / quoteProseMs))
     }
 
-    /// Cost per list item, isolated. Every list item pays for an
-    /// `NSAttributedString.size()` CoreText measurement of its marker prefix,
-    /// whose result is then discarded for any line shorter than 60 characters
-    /// — which short list items always are.
+    /// Cost per list item, isolated — it tracks the number of items, not the
+    /// document's length. Two shapes, because they exercise different parts of
+    /// `appendListContinuationIndent`: short items bail out before the
+    /// CoreText prefix measurement, long ones reach it and hit
+    /// `ListPrefixWidthCache`.
     func testCostPerListItem() {
-        print("\n=== List-heavy document (cost is per item, not per character) ===")
-        print("     items      chars    parse ms   µs/item")
-        for items in [250, 500, 1000, 2000] {
-            let doc = listDocument(items: items)
+        print("\n=== List-heavy documents (cost is per item, not per character) ===")
+        print("     items      chars    parse ms   µs/item  shape")
+        for (items, short) in [(500, true), (1000, true), (2000, true),
+                               (500, false), (1000, false), (2000, false)] {
+            let doc = listDocument(items: items, short: short)
             let chars = (doc as NSString).length
             let ms = parseSeconds(doc, iterations: 3) * 1000
-            print(String(format: "%10d %10d %11.2f %9.1f",
-                         items, chars, ms, ms * 1000 / Double(items)))
+            print(String(format: "%10d %10d %11.2f %9.1f  %@",
+                         items, chars, ms, ms * 1000 / Double(items),
+                         short ? "short items" : "long items"))
         }
     }
 }

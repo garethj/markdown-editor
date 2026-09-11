@@ -807,4 +807,35 @@ final class MarkdownStyleMapTests: XCTestCase {
             "a checked parent task must not dim its nested sub-list's text"
         )
     }
+
+    /// `ListPrefixWidthCache` keys measured prefix widths on the exact
+    /// composition that determines them. A key collision would silently hand
+    /// one list item another's indent, so: items sharing a prefix must agree,
+    /// and items whose prefixes differ only in where the whitespace sits must
+    /// not be conflated.
+    func testListPrefixWidthsAreNotConflatedAcrossDifferentPrefixes() {
+        let tail = " with enough trailing text on the line to clear the length gate"
+        let source = """
+        - one\(tail)
+        - two\(tail)
+          - nested\(tail)
+        - three\(tail)
+        10. ordered\(tail)
+        - [ ] task\(tail)
+        """
+        let indents = MarkdownStyleMap(text: source).elements
+            .compactMap { ($0.attributes[.paragraphStyle] as? NSParagraphStyle)?.headIndent }
+            .filter { $0 > 0 }
+
+        // The three top-level "- " items share a prefix and must measure the same.
+        let topLevel = indents.filter { $0 == indents.min() }
+        XCTAssertGreaterThanOrEqual(topLevel.count, 3,
+                                    "items sharing a marker prefix should all get the same indent")
+
+        // A nested item, an ordered "10." item and a checkbox item all have
+        // wider prefixes than a bare top-level bullet.
+        XCTAssertGreaterThan(Set(indents).count, 1,
+                             "prefixes of different widths must not collapse to one cached value")
+        XCTAssertGreaterThan(indents.max() ?? 0, indents.min() ?? 0)
+    }
 }

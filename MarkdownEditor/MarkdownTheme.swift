@@ -70,7 +70,13 @@ final class MarkdownTheme {
         updateForCurrentAppearance()
     }
 
+    /// Bumped every time the theme rebuilds its fonts and colors, so callers
+    /// holding anything derived from them (e.g. a cache of measured text
+    /// widths) can tell that their values went stale.
+    private(set) var generation = 0
+
     func updateForCurrentAppearance() {
+        generation += 1
         let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 
         // Fonts
