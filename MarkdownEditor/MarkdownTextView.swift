@@ -500,6 +500,16 @@ struct MarkdownTextView: NSViewRepresentable {
             context.coordinator.startWatching(url: url)
         }
 
+        // SwiftUI re-runs this after every keystroke, because textDidChange
+        // publishes the new text. Almost always that means it's reporting the
+        // edit the text view itself just made, and there is nothing to sync
+        // back. Recognising that case by comparing against the string we last
+        // pushed is effectively free — both sides are the same String value,
+        // so the comparison hits Swift's identical-storage fast path — whereas
+        // the check below materialises the whole document out of the text
+        // storage and compares it byte for byte.
+        if let pushed = context.coordinator.lastPushedText, pushed == document.text { return }
+
         let current = textView.string
         if current != document.text {
             context.coordinator.isUpdatingFromSwiftUI = true
@@ -519,6 +529,7 @@ struct MarkdownTextView: NSViewRepresentable {
             }
             textView.selectedRanges = safeRanges
             context.coordinator.isUpdatingFromSwiftUI = false
+            context.coordinator.lastPushedText = document.text
             context.coordinator.updateTOC()
         }
     }
@@ -532,6 +543,12 @@ struct MarkdownTextView: NSViewRepresentable {
         var layoutDelegate: MarkdownLayoutManagerDelegate?
         var isUpdatingDocument = false
         var isUpdatingFromSwiftUI = false
+
+        /// The exact text last written into `document.text` from this side.
+        /// Held so `updateNSView` can rule out "SwiftUI is just telling us
+        /// about our own edit" with an identical-storage string comparison,
+        /// instead of rebuilding the text view's entire contents to compare.
+        var lastPushedText: String?
         private var fileWatcher: FileWatcher?
         private var watchedURL: URL?
         private var appearanceObserver: NSObjectProtocol?
@@ -708,7 +725,9 @@ struct MarkdownTextView: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
 
             isUpdatingDocument = true
-            parent.document.text = textView.string
+            let newText = textView.string
+            parent.document.text = newText
+            lastPushedText = newText
 
             // Register undo for dirty tracking
             if let undoMgr = parent.undoManager {
@@ -895,7 +914,10 @@ struct MarkdownTextView: NSViewRepresentable {
 
             // Invalidate glyph layout for old and new ranges
             if let lm = textView.layoutManager {
-                let textLen = (textView.string as NSString).length
+                // textStorage.length, not (textView.string as NSString).length:
+                // this runs on every keystroke and every cursor move, and the
+                // latter materialises the entire document just to read a count.
+                let textLen = textView.textStorage?.length ?? 0
                 if let old = oldActive, old.location + old.length <= textLen {
                     lm.invalidateGlyphs(forCharacterRange: old, changeInLength: 0, actualCharacterRange: nil)
                     lm.invalidateLayout(forCharacterRange: old, actualCharacterRange: nil)
