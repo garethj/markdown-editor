@@ -9,13 +9,22 @@ This repo's `origin` remote is a **public** GitHub repository (`github.com/garet
 ## Build
 
 ```bash
-xcodebuild -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -configuration Release -destination 'platform=macOS' build
 ```
 
-Built app lands in `~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debug/`. **Check for more than one `MarkdownEditor-*` DerivedData folder before installing** (`ls -la ~/Library/Developer/Xcode/DerivedData/ | grep -i markdown`) — a stale one left over from an old checkout/scheme change will match the same glob, and `cp -R` with multiple glob matches copies them in alphabetical order, so a stale folder sorting after the fresh one silently overwrites it with old code. If more than one exists, either delete the stale one or copy the specific fresh path explicitly instead of the wildcard. To install:
+**Build the app the user actually runs as Release, not Debug.** Every keystroke re-parses the whole document (see "Architecture" below), and that parse measures 2.9–3.2× slower unoptimized — on a large file that is the difference between comfortable and visibly laggy typing. Use Debug only when something genuinely needs a debugger attached, and don't leave a Debug build installed in `/Applications` afterwards.
+
+Built app lands in `~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Release/`. **Check for more than one `MarkdownEditor-*` DerivedData folder before installing** (`ls -la ~/Library/Developer/Xcode/DerivedData/ | grep -i markdown`) — a stale one left over from an old checkout/scheme change will match the same glob, and `cp -R` with multiple glob matches copies them in alphabetical order, so a stale folder sorting after the fresh one silently overwrites it with old code. If more than one exists, either delete the stale one or copy the specific fresh path explicitly instead of the wildcard. To install:
 
 ```bash
-cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debug/MarkdownEditor.app /Applications/
+cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Release/MarkdownEditor.app /Applications/
+```
+
+**`cp -R` merges into an existing bundle, it doesn't replace it.** Copying a Release build over a previously-installed Debug one leaves every Debug-only file that Release doesn't overwrite still sitting inside `/Applications/MarkdownEditor.app` — `MarkdownEditor.debug.dylib`, `__preview.dylib`, `Contents/PlugIns/*.xctest`, and the whole `Contents/Frameworks/XCTest*` set injected for the test host. The app still runs (the Release executable is self-contained and never loads them), but `codesign --verify` then reports a long list of "file added" entries, and a later `strings`/`grep` hunting for a change can hit the stale `.debug.dylib` and report on code that is months old. When switching configuration, delete the installed bundle first rather than copying over it:
+
+```bash
+rm -rf /Applications/MarkdownEditor.app
+cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Release/MarkdownEditor.app /Applications/
 ```
 
 Requires macOS 14+ and Xcode. The `swift-markdown` (Apple) package is pulled automatically via SPM.
@@ -85,7 +94,7 @@ A window-resize-reflow test (dragging the window border and checking the text vi
 
 For that remaining class, the fallback is manually driving the built app or asking the user to check visually — not a test.
 
-**Debug builds split code into a dylib.** `Contents/MacOS/MarkdownEditor` in a Debug build is a thin stub; the actual compiled code lives in `Contents/MacOS/MarkdownEditor.debug.dylib` (Xcode's debug-dylib optimization). `strings`/`grep` on the main executable to confirm a change landed will find nothing — check the `.debug.dylib` instead.
+**Debug builds split code into a dylib.** `Contents/MacOS/MarkdownEditor` in a Debug build is a thin stub; the actual compiled code lives in `Contents/MacOS/MarkdownEditor.debug.dylib` (Xcode's debug-dylib optimization). `strings`/`grep` on the main executable to confirm a change landed will find nothing — check the `.debug.dylib` instead. A Release build has no such split: everything is in the single `Contents/MacOS/MarkdownEditor` executable, so grep that one. The test targets still build and run against Debug (they need `@testable`), so a `.debug.dylib` in DerivedData alongside a Release install is expected, not a stale build.
 
 ## Keeping EXAMPLE.md current
 

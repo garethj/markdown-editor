@@ -52,14 +52,16 @@ You won't lose edits by quitting without manually saving.
 Requires macOS 14+ and Xcode. The `swift-markdown` package is pulled automatically via Swift Package Manager.
 
 ```bash
-xcodebuild -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project MarkdownEditor.xcodeproj -scheme MarkdownEditor -configuration Release -destination 'platform=macOS' build
 ```
 
 The built app lands in DerivedData. To install:
 
 ```bash
-cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Debug/MarkdownEditor.app /Applications/
+cp -R ~/Library/Developer/Xcode/DerivedData/MarkdownEditor-*/Build/Products/Release/MarkdownEditor.app /Applications/
 ```
+
+Build the app you actually run as Release, not Debug. Every keystroke re-parses the whole document, and that parse measures 2.9–3.2× slower unoptimized — enough to be the difference between comfortable and laggy typing in a large file. Swap `Release` for `Debug` when you need a debugger attached.
 
 ## Testing
 
