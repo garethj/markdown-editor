@@ -12,14 +12,12 @@ final class MarkdownTextContainer: NSTextContainer {
     /// The width at which normal (non-table) prose should wrap (matches clip view width).
     var proseWidth: CGFloat = 0 {
         didSet {
-            updateContainerWidth()
+            let widthChanged = updateContainerWidth()
             // Always invalidate layout when proseWidth changes, even if container
             // width didn't change (e.g. a wide table dominates container width but
             // prose lines still need to re-wrap at the new proseWidth).
-            if abs(proseWidth - oldValue) > 1,
-               let lm = layoutManager, lm.numberOfGlyphs > 0 {
-                let fullRange = NSRange(location: 0, length: lm.numberOfGlyphs)
-                lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
+            if !widthChanged && abs(proseWidth - oldValue) > 1 {
+                invalidateEntireLayout()
             }
         }
     }
@@ -74,17 +72,34 @@ final class MarkdownTextContainer: NSTextContainer {
 
     /// Sets the container's size.width to max(proseWidth, widest table).
     /// This ensures the text view grows wide enough for table content.
-    private func updateContainerWidth() {
-        let maxTableWidth = tableLineRanges.map(\.requiredWidth).max() ?? 0
+    /// Returns whether the width actually changed.
+    @discardableResult
+    private func updateContainerWidth() -> Bool {
+        // lazy.map so re-assigning tableLineRanges — which happens on every
+        // keystroke — doesn't allocate an intermediate array just to take a max.
+        let maxTableWidth = tableLineRanges.lazy.map(\.requiredWidth).max() ?? 0
         let needed = max(proseWidth, maxTableWidth)
-        if needed > 0 && abs(size.width - needed) > 1 {
-            size = NSSize(width: needed, height: size.height)
-            // Container size change requires explicit layout invalidation
-            if let lm = layoutManager, lm.numberOfGlyphs > 0 {
-                let fullRange = NSRange(location: 0, length: lm.numberOfGlyphs)
-                lm.invalidateLayout(forCharacterRange: fullRange, actualCharacterRange: nil)
-            }
-        }
+        guard needed > 0 && abs(size.width - needed) > 1 else { return false }
+        size = NSSize(width: needed, height: size.height)
+        // Container size change requires explicit layout invalidation
+        invalidateEntireLayout()
+        return true
+    }
+
+    /// Marks the whole document's layout invalid, which a width change really
+    /// does require — every line has to re-wrap.
+    ///
+    /// Scoped by the text storage's length, deliberately not by
+    /// `layoutManager.numberOfGlyphs`: reading that forces glyph generation
+    /// for the entire document, defeating TextKit's lazy layout and costing
+    /// real time on a long one. It was also the wrong unit — a glyph count
+    /// passed to a method that wants a character range, which hidden
+    /// delimiters make diverge. `invalidateLayout(forCharacterRange:)` only
+    /// marks the range dirty, so layout stays lazy from here on.
+    private func invalidateEntireLayout() {
+        guard let lm = layoutManager, let length = lm.textStorage?.length, length > 0 else { return }
+        lm.invalidateLayout(forCharacterRange: NSRange(location: 0, length: length),
+                            actualCharacterRange: nil)
     }
 
     /// Binary search for the required width of a table range containing the given character index.
