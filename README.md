@@ -32,6 +32,8 @@ The raw markdown lives in an `NSTextStorage` subclass. On every edit, the app:
 
 The cursor reveal works by binary-searching the styled ranges to find which formatted span the cursor is in, then temporarily restoring that span's delimiter glyphs.
 
+Steps 1–3 are cheap enough to run inline for almost any document, and that's what happens. When they aren't — a long file, or a dense one full of tables and list items — the editor stops paying that cost on every keystroke and restyles once typing pauses instead, so typing stays responsive. The decision is made from what the previous styling pass actually cost rather than from the file's size, since element density moves the real cost around by several times.
+
 ## Tables
 
 Tables get special treatment. The separator row (`|---|---|`) is hidden entirely; the pipe characters stay visible, recolored in the accent color, so table structure still reads at a glance. Columns stay aligned through `.kern` attributes on each cell's last character, computed from the maximum visual width per column — "visual width" subtracts hidden inline delimiters, so a cell containing `**bold**` (4 hidden characters) still gets the right padding. A custom text container widens table line fragments so wide tables scroll horizontally instead of wrapping, while ordinary prose keeps wrapping at the window edge.

@@ -903,6 +903,11 @@ struct MarkdownTextView: NSViewRepresentable {
         // MARK: - Checkbox toggling
 
         func handleCheckboxClick(at charIndex: Int) -> Bool {
+            // Checkbox ranges come from the style map, which may be up to one
+            // deferral behind the text if the user clicked mid-burst (see
+            // MarkdownTextStorage.processEditing). Acting on stale ranges here
+            // would toggle the wrong bracket, so settle the styling first.
+            markdownTextStorage?.flushPendingStyling()
             guard let textView, let styleMap = markdownTextStorage?.lastStyleMap,
                   let checkbox = styleMap.checkboxes.first(where: { NSLocationInRange(charIndex, $0.range) })
             else { return false }

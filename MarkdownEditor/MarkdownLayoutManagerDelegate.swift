@@ -50,6 +50,29 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
         return delimiterIndexSet.contains(index)
     }
 
+    /// Keeps the hidden-character set aligned with the text after an edit
+    /// whose restyle has been deferred (see `MarkdownTextStorage.processEditing`).
+    /// Every index after the edit moved by `delta`, and the characters just
+    /// typed aren't delimiters until the next parse says otherwise — without
+    /// this, glyph hiding would blank out the wrong characters for as long as
+    /// the restyle stayed pending.
+    func adjustForEdit(at location: Int, delta: Int, editedRange: NSRange) {
+        if delta != 0 {
+            delimiterIndexSet.shift(startingAt: location, by: delta)
+            if var active = activeSpanRange {
+                if active.location >= location {
+                    active.location = max(0, active.location + delta)
+                } else if location < NSMaxRange(active) {
+                    active.length = max(0, active.length + delta)
+                }
+                activeSpanRange = active
+            }
+        }
+        if editedRange.length > 0 {
+            delimiterIndexSet.remove(integersIn: editedRange.location..<NSMaxRange(editedRange))
+        }
+    }
+
     func updateDelimiters(from styleMap: MarkdownStyleMap?) {
         guard let styleMap else {
             delimiterIndexSet = IndexSet()

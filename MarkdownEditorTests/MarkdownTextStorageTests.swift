@@ -408,4 +408,101 @@ final class MarkdownTextStorageTests: XCTestCase {
         }
         return attributes(at: offset, in: storage)[.foregroundColor] as? NSColor
     }
+
+    // MARK: - Deferred styling
+
+    /// Big enough that the initial parse blows through
+    /// `MarkdownTextStorage.synchronousStylingBudget`, so subsequent edits
+    /// take the deferred path.
+    private func largeStyledDocument() -> String {
+        var out = ""
+        for i in 0..<200 {
+            out += "## Section \(i)\n\n"
+            out += "Some **bold text** and _italic text_ and `inline code` here, "
+            out += "plus a [link](https://example.com/\(i)) and trailing words.\n\n"
+            out += "- An item with **emphasis**\n- Another with `code`\n\n"
+        }
+        return out
+    }
+
+    /// On a document large enough to defer, a burst of edits must settle to
+    /// exactly the styling a single synchronous pass would have produced.
+    /// Deferral is only allowed to change *when* styling happens, never what
+    /// it ends up being.
+    func testDeferredStylingSettlesToTheSameResultAsSynchronousStyling() {
+        let source = largeStyledDocument()
+        let storage = makeStorage(source)
+
+        // A burst of edits, as if typed, with no chance to settle in between.
+        let insertAt = (storage.string as NSString).range(of: "Section 80").location
+        for character in ["N", "e", "w", " "] {
+            storage.replaceCharacters(in: NSRange(location: insertAt, length: 0), with: character)
+        }
+
+        let reference = makeStorage(storage.string)
+        XCTAssertEqual(storage.string, reference.string)
+
+        let referenceRanges = (reference.lastStyleMap?.elements ?? []).map { $0.fullRange }
+        XCTAssertFalse(referenceRanges.isEmpty)
+
+        // Assert the deferral actually engaged, rather than inferring it from
+        // the document's size — the threshold is a cost, not a length, so it
+        // moves with the machine and the build configuration. Before the
+        // flush the style map is still the pre-burst one.
+        XCTAssertNotEqual((storage.lastStyleMap?.elements ?? []).map { $0.fullRange }, referenceRanges,
+                          "expected this document to defer its restyle; the rest of the test is vacuous if it didn't")
+
+        storage.flushPendingStyling()
+
+        XCTAssertEqual((storage.lastStyleMap?.elements ?? []).map { $0.fullRange }, referenceRanges,
+                       "settled style map should match a from-scratch parse of the same text")
+
+        // Spot-check the attributes themselves, not just the element ranges —
+        // after the edit, and well past it, so a stale dirty region would show.
+        let ns = storage.string as NSString
+        for probe in ["bold text", "inline code"] {
+            var searchFrom = insertAt
+            for _ in 0..<3 {
+                let found = ns.range(of: probe, options: [],
+                                     range: NSRange(location: searchFrom, length: ns.length - searchFrom))
+                guard found.location != NSNotFound else { break }
+                let deferredFont = attributes(at: found.location, in: storage)[.font] as? NSFont
+                let referenceFont = attributes(at: found.location, in: reference)[.font] as? NSFont
+                XCTAssertEqual(deferredFont, referenceFont,
+                               "font at \(found.location) (\(probe)) diverged after deferred styling")
+                searchFrom = NSMaxRange(found)
+            }
+        }
+    }
+
+    /// The deferral is opt-in by cost: a document small enough to style well
+    /// inside a frame must keep styling inline, with no flush needed, so the
+    /// overwhelming majority of documents behave exactly as they always did.
+    func testSmallDocumentsStyleSynchronouslyWithoutAFlush() {
+        let storage = makeStorage("Hello **world**")
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x")
+
+        // No flushPendingStyling() call here — this is the point of the test.
+        let idx = (storage.string as NSString).range(of: "world").location
+        let font = attributes(at: idx, in: storage)[.font] as? NSFont
+        XCTAssertTrue(font?.fontDescriptor.symbolicTraits.contains(.bold) ?? false,
+                      "a small document should still be styled by the time the edit returns")
+    }
+
+    /// Deleting is the case where a mis-shifted delimiter index set would be
+    /// most visible, so cover it explicitly alongside insertion.
+    func testDeferredStylingSettlesCorrectlyAfterDeletions() {
+        let source = largeStyledDocument()
+        let storage = makeStorage(source)
+
+        let deleteAt = (storage.string as NSString).range(of: "Section 80").location
+        for _ in 0..<5 {
+            storage.replaceCharacters(in: NSRange(location: deleteAt, length: 1), with: "")
+        }
+        storage.flushPendingStyling()
+
+        let reference = makeStorage(storage.string)
+        XCTAssertEqual((storage.lastStyleMap?.elements ?? []).map { $0.fullRange },
+                       (reference.lastStyleMap?.elements ?? []).map { $0.fullRange })
+    }
 }

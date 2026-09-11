@@ -24,6 +24,28 @@ final class MarkdownTextContainer: NSTextContainer {
         }
     }
 
+    /// Keeps table line ranges aligned with the text after an edit whose
+    /// restyle has been deferred (see `MarkdownTextStorage.processEditing`),
+    /// so wide line fragments stay on the table's own lines in the meantime.
+    /// Deliberately does not touch `requiredWidth` — column widths only get
+    /// recomputed by a real parse, and re-running `updateContainerWidth` here
+    /// would churn the container size mid-burst.
+    func adjustTableLineRangesForEdit(at location: Int, delta: Int) {
+        guard delta != 0, !tableLineRanges.isEmpty else { return }
+        // Built whole and assigned once: tableLineRanges has a didSet, and
+        // mutating elements in place through the subscript would re-run it
+        // for every entry.
+        tableLineRanges = tableLineRanges.map { entry in
+            var range = entry.charRange
+            if range.location >= location {
+                range.location = max(0, range.location + delta)
+            } else if location < NSMaxRange(range) {
+                range.length = max(0, range.length + delta)
+            }
+            return (charRange: range, requiredWidth: entry.requiredWidth)
+        }
+    }
+
     override func lineFragmentRect(
         forProposedRect proposedRect: NSRect,
         at characterIndex: Int,

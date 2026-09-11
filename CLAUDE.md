@@ -114,6 +114,8 @@ This is a native macOS document-based app (SwiftUI `DocumentGroup`) using **Text
 NSTextView edit
   → MarkdownTextStorage.replaceCharacters
     → processEditing
+      → (cheap document? style inline. expensive one? shift cached
+         ranges, schedule the restyle, return — see "Deferred styling")
       → applyMarkdownStyling (incremental: dirty region only)
         → MarkdownStyleMap(text:)   ← full AST re-parse (cmark, can't be incremental)
           → StyleWalker walks AST, produces [StyledElement]
@@ -123,6 +125,21 @@ NSTextView edit
   → NSLayoutManager generates glyphs
     → MarkdownLayoutManagerDelegate.shouldGenerateGlyphs  ← sets .null for delimiters
 ```
+
+### Deferred styling
+
+The full parse above is unavoidable per restyle (cmark can't do incremental), but it does not have to happen *per keystroke*. `processEditing` decides between two paths based on **what the last styling pass actually cost**, not on document size:
+
+- **Under `synchronousStylingBudget` (8ms)** — style inline, exactly as before. Almost every document lands here, so the common case is unchanged.
+- **Over it** — shift the cached character ranges to match the edit, schedule the restyle for `deferralQuietPeriod` (120ms) after typing stops, and return immediately. `maximumStylingStaleness` (400ms) caps how long continuous typing can keep postponing it, so styling still refreshes for a fast typist rather than never appearing.
+
+Measuring the real cost rather than thresholding on length matters because the same document costs several times more or less depending on machine, build configuration and element density — a 12KB table is more expensive than a 100KB prose file.
+
+**Shifting the cached ranges is the part that must not be skipped.** `MarkdownLayoutManagerDelegate.delimiterIndexSet` and `MarkdownTextContainer.tableLineRanges` are keyed on character indices, and an edit moves every index after it. Leaving them stale for the length of the deferral would hide the wrong characters — visible as text blanking out and reappearing while typing. `adjustForEdit(at:delta:editedRange:)` and `adjustTableLineRangesForEdit(at:delta:)` handle that; `activeSpanRange` shifts alongside.
+
+**Anything that reads `lastStyleMap` to act on a user's behalf must call `flushPendingStyling()` first**, since the map can be up to one deferral behind the text. `handleCheckboxClick` does — resolving a click against stale checkbox ranges would toggle the wrong bracket. Read-only consumers that self-correct shortly after (the TOC, cursor reveal) don't need to.
+
+`flushPendingStyling()` also consumes the pending display invalidation itself, via `consumePendingDisplayInvalidation()` — the deferred path doesn't go through `replaceCharacters`, which is where that normally happens.
 
 ### Glyph hiding
 
@@ -191,5 +208,6 @@ Fixed in `applyExternalText` by fetching the underlying `NSDocument` via the pub
 - **Attribute dicts must come from `MarkdownTheme.shared`** cached properties, never allocate inline.
 - **`applyMarkdownStyling` scopes attribute application to the dirty region** but always does a full AST parse (cmark limitation). Don't try to skip the full parse.
 - **Delimiter invalidation happens inside `processEditing`** via `applyMarkdownStyling`. Don't add extra `invalidateGlyphs` calls in `textDidChange` — it causes scroll-to-bottom on every keystroke.
+- **`lastStyleMap` can be one deferral behind the text** (see "Deferred styling"). Call `flushPendingStyling()` before resolving anything positional from it that the user is acting on.
 - The `NSTextView` has `isRichText = false` and smart substitutions disabled; keep it that way.
 - **Don't use `undoManager.canUndo` as an "unsaved changes" proxy** — it's permanently true after the first edit of a session (see "Saving, autosave, and external-change detection" above). Use `document.text != document.lastConfirmedSavedText`.

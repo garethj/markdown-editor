@@ -66,9 +66,23 @@ final class EditingPerformanceTests: XCTestCase {
         return Double(end - start) / 1_000_000_000.0 / Double(iterations)
     }
 
-    /// Time for one realistic keystroke: inserting a single character near the
-    /// middle of the document, through the real text-storage edit pipeline.
+    /// Latency the typist actually feels for one keystroke: how long
+    /// `replaceCharacters` blocks before the character is on screen. Above a
+    /// cost threshold `MarkdownTextStorage` defers the restyle out of this
+    /// path, so on a large document this is much less than the total work.
     private func keystrokeSeconds(_ text: String, iterations: Int = 5) -> Double {
+        measureKeystroke(text, iterations: iterations, settle: false)
+    }
+
+    /// Total work one keystroke causes, deferral included: the edit plus the
+    /// restyle it schedules. This is the figure that has to stay linear in
+    /// document size — deferring moves cost off the keystroke, it doesn't
+    /// remove it, and a burst of typing still has to pay this once.
+    private func settledKeystrokeSeconds(_ text: String, iterations: Int = 5) -> Double {
+        measureKeystroke(text, iterations: iterations, settle: true)
+    }
+
+    private func measureKeystroke(_ text: String, iterations: Int, settle: Bool) -> Double {
         let storage = MarkdownTextStorage()
         storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
         let ns = storage.string as NSString
@@ -76,6 +90,7 @@ final class EditingPerformanceTests: XCTestCase {
         let insertAt = max(0, min(ns.length, ns.length / 2))
         return timeSeconds(iterations) {
             storage.replaceCharacters(in: NSRange(location: insertAt, length: 0), with: "x")
+            if settle { storage.flushPendingStyling() }
         }
     }
 
@@ -100,25 +115,28 @@ final class EditingPerformanceTests: XCTestCase {
 
     func testKeystrokeScalingWithDocumentSize() {
         print("\n=== Single keystroke through MarkdownTextStorage (prose) ===")
-        print("     chars  keystroke ms  ms/10k chars")
+        print("     chars      felt ms   settled ms  settled/10k")
         for sections in [8, 16, 32, 64, 128] {
             let doc = proseDocument(sections: sections)
             let chars = (doc as NSString).length
-            let ms = keystrokeSeconds(doc) * 1000
-            print(String(format: "%10d %12.2f %12.2f", chars, ms, ms / (Double(chars) / 10_000)))
+            let felt = keystrokeSeconds(doc) * 1000
+            let settled = settledKeystrokeSeconds(doc) * 1000
+            print(String(format: "%10d %12.2f %12.2f %12.2f",
+                         chars, felt, settled, settled / (Double(chars) / 10_000)))
         }
     }
 
     func testKeystrokeScalingWithTables() {
         print("\n=== Single keystroke through MarkdownTextStorage (tables) ===")
-        print("     chars   elements  keystroke ms  ms/10k chars")
+        print("     chars   elements      felt ms   settled ms  settled/10k")
         for rows in [25, 50, 100, 200] {
             let doc = tableDocument(rows: rows)
             let chars = (doc as NSString).length
             let elements = MarkdownStyleMap(text: doc).elements.count
-            let ms = keystrokeSeconds(doc, iterations: 3) * 1000
-            print(String(format: "%10d %10d %12.2f %12.2f",
-                         chars, elements, ms, ms / (Double(chars) / 10_000)))
+            let felt = keystrokeSeconds(doc, iterations: 3) * 1000
+            let settled = settledKeystrokeSeconds(doc, iterations: 3) * 1000
+            print(String(format: "%10d %10d %12.2f %12.2f %12.2f",
+                         chars, elements, felt, settled, settled / (Double(chars) / 10_000)))
         }
     }
 
@@ -132,10 +150,12 @@ final class EditingPerformanceTests: XCTestCase {
         let largeChars = Double((large as NSString).length)
 
         // Warm up so first-parse/font-cache costs don't land in the measurement.
-        _ = keystrokeSeconds(small, iterations: 2)
+        _ = settledKeystrokeSeconds(small, iterations: 2)
 
-        let smallMs = keystrokeSeconds(small) * 1000
-        let largeMs = keystrokeSeconds(large) * 1000
+        // Settled, not felt: deferral moves styling cost off the keystroke but
+        // doesn't remove it, and it's the total that must stay linear.
+        let smallMs = settledKeystrokeSeconds(small) * 1000
+        let largeMs = settledKeystrokeSeconds(large) * 1000
         let sizeRatio = largeChars / smallChars
         let costRatio = largeMs / smallMs
         // Cost growth per unit of size growth: 1.0 == perfectly linear,
@@ -154,13 +174,17 @@ final class EditingPerformanceTests: XCTestCase {
     func testKeystrokeBudgetOnRealisticDocument() {
         let doc = proseDocument(sections: 64) // ~25KB, a long but ordinary file
         _ = keystrokeSeconds(doc, iterations: 2) // warm up
-        let ms = keystrokeSeconds(doc) * 1000
-        print(String(format: "\n=== Keystroke on %d chars: %.2f ms ===", (doc as NSString).length, ms))
-        // Deliberately loose. This runs in the pre-commit suite, so it is a
-        // gross-regression guard, not a frame-budget assertion — the measured
-        // value at the time of writing is ~9 ms in a Debug build, so there is
-        // ~4x headroom before this trips on an unrelated machine hiccup.
-        XCTAssertLessThan(ms, 40.0, "A single keystroke got dramatically slower on an ordinary-sized document.")
+        let felt = keystrokeSeconds(doc) * 1000
+        let settled = settledKeystrokeSeconds(doc) * 1000
+        print(String(format: "\n=== Keystroke on %d chars: %.2f ms felt, %.2f ms settled ===",
+                     (doc as NSString).length, felt, settled))
+        // Felt latency is what decides whether typing feels immediate, and
+        // deferral is what keeps it low on a document this size. Still
+        // deliberately loose — this runs in the pre-commit suite, so it's a
+        // gross-regression guard rather than a tight frame-budget assertion;
+        // the measured value at the time of writing is ~1.5 ms in a Debug
+        // build, so there is a lot of headroom before a machine hiccup trips it.
+        XCTAssertLessThan(felt, 16.0, "A keystroke now blocks for longer than a 60Hz frame on an ordinary-sized document.")
     }
 
     // MARK: - Dirty-region locality
@@ -179,6 +203,7 @@ final class EditingPerformanceTests: XCTestCase {
             storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
             return timeSeconds(iterations) {
                 storage.replaceCharacters(in: NSRange(location: insertAt, length: 0), with: "x")
+                storage.flushPendingStyling()
             }
         }
 

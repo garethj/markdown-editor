@@ -48,6 +48,14 @@ final class MarkdownTextStorage: NSTextStorage {
         // while textStorage is editing") — confirmed by hitting that
         // assertion directly while chasing the string-index-out-of-bounds
         // crash this replaced (see the comment on pendingDisplayInvalidationRange).
+        consumePendingDisplayInvalidation()
+    }
+
+    /// Applies whatever redisplay `applyMarkdownStyling` asked for. Split out
+    /// of `replaceCharacters(in:with:)` because the deferred styling path
+    /// (see `processEditing`) also produces one, and nothing would consume it
+    /// there — it would sit until the *next* edit happened to flush it.
+    private func consumePendingDisplayInvalidation() {
         if let range = pendingDisplayInvalidationRange {
             pendingDisplayInvalidationRange = nil
             for lm in layoutManagers {
@@ -91,14 +99,129 @@ final class MarkdownTextStorage: NSTextStorage {
     /// the comment there for why it can't happen any earlier.
     private var pendingDisplayInvalidationRange: NSRange?
 
+    // MARK: - Deferred styling
+
+    /// How long the last full styling pass took. Drives whether the next edit
+    /// styles inline or defers — see `processEditing`.
+    private var lastStylingDuration: TimeInterval = 0
+
+    /// Below this, styling inline is imperceptible and deferring would only
+    /// add risk, so small documents keep the simple synchronous behaviour
+    /// exactly as it was. Roughly half a 60Hz frame.
+    private static let synchronousStylingBudget: TimeInterval = 0.008
+
+    /// How long typing has to pause before a deferred restyle runs.
+    private static let deferralQuietPeriod: TimeInterval = 0.12
+
+    /// Ceiling on how long styling may stay deferred while someone types
+    /// continuously. Without it, a fast typist would never see their markdown
+    /// style up at all until they stopped.
+    private static let maximumStylingStaleness: TimeInterval = 0.4
+
+    private var deferredStylingWorkItem: DispatchWorkItem?
+    private var lastStylingCompletedAt: Date = .distantPast
+
+    /// Union of every edited range accumulated since the last styling pass,
+    /// in current text coordinates, so a deferred pass can still scope itself
+    /// to a dirty region instead of restyling the whole document.
+    private var deferredEditedRange: NSRange?
+
     override func processEditing() {
         if editedMask.contains(.editedCharacters) {
-            pendingEditedRange = editedRange
-            applyMarkdownStyling()
-            pendingEditedRange = nil
+            let edited = editedRange
+            let delta = changeInLength
+
+            // The decision is made from what styling actually cost last time
+            // rather than from a document-size threshold: it adapts on its own
+            // to the machine, the build configuration and the document's
+            // element density, all of which move the real cost around by
+            // several times.
+            let shouldDefer = lastStylingDuration > Self.synchronousStylingBudget
+                && Date().timeIntervalSince(lastStylingCompletedAt) < Self.maximumStylingStaleness
+
+            if shouldDefer {
+                accumulateDeferredEditedRange(edited, delta: delta)
+                // Glyph hiding and table geometry are keyed on character
+                // indices that this edit just moved. Shifting them now keeps
+                // the right characters hidden until the real restyle lands;
+                // without it, every delimiter after the caret would hide the
+                // wrong character for the length of the deferral.
+                adjustCachedRangesForEdit(at: edited, delta: delta)
+                scheduleDeferredStyling()
+            } else {
+                pendingEditedRange = edited
+                styleNow()
+            }
         }
         super.processEditing()
     }
+
+    private func styleNow() {
+        let start = Date()
+        applyMarkdownStyling()
+        lastStylingDuration = Date().timeIntervalSince(start)
+        lastStylingCompletedAt = Date()
+        pendingEditedRange = nil
+        deferredEditedRange = nil
+    }
+
+    private func accumulateDeferredEditedRange(_ edited: NSRange, delta: Int) {
+        guard var accumulated = deferredEditedRange else {
+            deferredEditedRange = edited
+            return
+        }
+        // Move the range already accumulated into post-edit coordinates before
+        // unioning this edit into it.
+        if delta != 0 {
+            if edited.location <= accumulated.location {
+                accumulated.location = max(0, accumulated.location + delta)
+            } else if edited.location < NSMaxRange(accumulated) {
+                accumulated.length = max(0, accumulated.length + delta)
+            }
+        }
+        deferredEditedRange = NSUnionRange(accumulated, edited)
+    }
+
+    private func scheduleDeferredStyling() {
+        deferredStylingWorkItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.flushPendingStyling()
+        }
+        deferredStylingWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.deferralQuietPeriod, execute: item)
+    }
+
+    /// Runs any deferred styling immediately. Call before reading
+    /// `lastStyleMap` for anything the user can act on (checkbox hit-testing,
+    /// say), where working from a map up to `deferralQuietPeriod` out of date
+    /// would resolve to the wrong character range.
+    func flushPendingStyling() {
+        deferredStylingWorkItem?.cancel()
+        deferredStylingWorkItem = nil
+        guard deferredEditedRange != nil else { return }
+
+        let length = backingStore.length
+        if let accumulated = deferredEditedRange, length > 0 {
+            let location = max(0, min(accumulated.location, length))
+            pendingEditedRange = NSRange(location: location,
+                                         length: max(0, min(accumulated.length, length - location)))
+        }
+        styleNow()
+        consumePendingDisplayInvalidation()
+    }
+
+    /// Shifts the character indices that glyph hiding and table layout are
+    /// keyed on to account for an edit whose restyle hasn't run yet.
+    private func adjustCachedRangesForEdit(at edited: NSRange, delta: Int) {
+        let editStart = edited.location
+        for lm in layoutManagers {
+            (lm.delegate as? MarkdownLayoutManagerDelegate)?
+                .adjustForEdit(at: editStart, delta: delta, editedRange: edited)
+            (lm.textContainers.first as? MarkdownTextContainer)?
+                .adjustTableLineRangesForEdit(at: editStart, delta: delta)
+        }
+    }
+
 
     func applyMarkdownStyling() {
         let text = string
