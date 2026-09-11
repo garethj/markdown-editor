@@ -118,6 +118,14 @@ final class MarkdownTextStorage: NSTextStorage {
     /// style up at all until they stopped.
     private static let maximumStylingStaleness: TimeInterval = 0.4
 
+    /// Called after a *deferred* styling pass completes. The synchronous path
+    /// needs no equivalent: `textDidChange` already runs right after it and
+    /// refreshes everything derived from the style map. A deferred pass lands
+    /// outside any edit notification, so without this the table of contents
+    /// and cursor reveal would stay pinned to the pre-burst style map until
+    /// the next keystroke happened to refresh them.
+    var onDeferredStylingComplete: (() -> Void)?
+
     private var deferredStylingWorkItem: DispatchWorkItem?
     private var lastStylingCompletedAt: Date = .distantPast
 
@@ -208,6 +216,7 @@ final class MarkdownTextStorage: NSTextStorage {
         }
         styleNow()
         consumePendingDisplayInvalidation()
+        onDeferredStylingComplete?()
     }
 
     /// Shifts the character indices that glyph hiding and table layout are

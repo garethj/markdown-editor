@@ -1,15 +1,42 @@
 import SwiftUI
 
 final class TableOfContentsModel: ObservableObject {
-    struct Item: Identifiable {
-        let id = UUID()
-        let range: NSRange
+    /// Exactly what the sidebar renders — no character range. See `update`.
+    struct Item: Identifiable, Equatable {
+        /// The heading's ordinal position in the document. Stable across
+        /// edits in a way a fresh UUID per rebuild was not: previously every
+        /// rebuild minted new ids, so `ForEach` saw an entirely new set of
+        /// rows and tore down and recreated the whole sidebar — on every
+        /// keystroke, since `updateTOC` runs from `textDidChange`.
+        let id: Int
         let level: Int
         let title: String
     }
 
-    @Published var items: [Item] = []
+    @Published private(set) var items: [Item] = []
+
+    /// Character ranges for each item, parallel to `items`. Deliberately not
+    /// published and not part of `Item`: every keystroke above a heading
+    /// shifts its range, so including them would re-publish the outline
+    /// constantly even though nothing the sidebar draws had changed.
+    private var ranges: [NSRange] = []
+
     var onSelect: ((NSRange) -> Void)?
+
+    func update(headings: [(range: NSRange, level: Int, title: String)]) {
+        ranges = headings.map(\.range)
+        let rebuilt = headings.enumerated().map { index, heading in
+            Item(id: index, level: heading.level, title: heading.title)
+        }
+        // Only publish when the visible outline actually changed, which for
+        // ordinary typing is almost never.
+        if rebuilt != items { items = rebuilt }
+    }
+
+    func select(_ item: Item) {
+        guard ranges.indices.contains(item.id) else { return }
+        onSelect?(ranges[item.id])
+    }
 }
 
 struct TableOfContentsView: View {
@@ -20,7 +47,7 @@ struct TableOfContentsView: View {
             VStack(alignment: .leading, spacing: 1) {
                 ForEach(model.items) { item in
                     Button {
-                        model.onSelect?(item.range)
+                        model.select(item)
                     } label: {
                         Text(item.title.isEmpty ? "Untitled" : item.title)
                             .font(.system(size: fontSize(for: item.level), weight: item.level <= 2 ? .semibold : .regular))

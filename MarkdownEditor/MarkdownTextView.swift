@@ -384,6 +384,10 @@ struct MarkdownTextView: NSViewRepresentable {
         layoutManager.delegate = layoutDelegate
         context.coordinator.layoutDelegate = layoutDelegate
         context.coordinator.markdownTextStorage = textStorage
+        textStorage.onDeferredStylingComplete = { [weak coordinator = context.coordinator] in
+            coordinator?.updateTOC()
+            coordinator?.updateCursorRevealAfterDeferredStyling()
+        }
 
         // Create text view
         let textView = EditorTextView(frame: .zero, textContainer: textContainer)
@@ -821,10 +825,7 @@ struct MarkdownTextView: NSViewRepresentable {
 
         func updateTOC() {
             guard let tocModel = parent.tocModel else { return }
-            let headings = markdownTextStorage?.lastStyleMap?.headings ?? []
-            tocModel.items = headings.map {
-                TableOfContentsModel.Item(range: $0.range, level: $0.level, title: $0.title)
-            }
+            tocModel.update(headings: markdownTextStorage?.lastStyleMap?.headings ?? [])
         }
 
         private func scrollToHeading(_ range: NSRange) {
@@ -838,6 +839,13 @@ struct MarkdownTextView: NSViewRepresentable {
         }
 
         // MARK: - Cursor-aware reveal
+
+        /// Re-runs cursor reveal once a deferred styling pass has landed — the
+        /// span the cursor sits in is resolved from the style map, so it can't
+        /// be settled any earlier.
+        func updateCursorRevealAfterDeferredStyling() {
+            updateCursorReveal()
+        }
 
         private func updateCursorReveal() {
             guard let textView,

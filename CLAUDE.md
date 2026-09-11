@@ -200,6 +200,7 @@ Fixed in `applyExternalText` by fetching the underlying `NSDocument` via the pub
 | `MarkdownTheme.swift` | Fonts, colors, cached attribute dicts |
 | `MarkdownDocument.swift` | `ReferenceFileDocument`; plain UTF-8 read/write; tracks `lastConfirmedSavedText` |
 | `FileWatcher.swift` | Raw inode-level `DispatchSourceFileSystemObject` watch; no self-write suppression built in |
+| `TableOfContentsView.swift` | Sidebar outline; `TableOfContentsModel` publishes only when the outline itself changes |
 | `MarkdownPDFExporter.swift` | WKWebView → NSPrintOperation PDF pipeline |
 
 ## Important invariants
