@@ -621,6 +621,41 @@ private struct StyleWalker: MarkupWalker {
         let lineEnd = forwardMatch.location == NSNotFound ? textLength : forwardMatch.location
         guard lineEnd > lineStart else { return }
 
+        // Only worth paying for on lines with a real chance of wrapping.
+        // Checked here, before the prefix measurement below, rather than
+        // after it: the measurement lays the prefix out with CoreText
+        // (NSAttributedString.size()), which is by far the most expensive
+        // thing this function does, and this guard discards its result
+        // outright. A document of short list items — the common case for a
+        // checklist or an index — is every line failing this test, so
+        // measuring first meant paying full price for a value that was
+        // always thrown away. Profiling a 2175-item list document put
+        // appendListContinuationIndent at ~21% of the whole parse, which
+        // re-runs on every keystroke.
+        //
+        // NSParagraphStyle.headIndent is documented to affect only a
+        // paragraph's *continuation* lines, with firstLineHeadIndent (left
+        // at 0 above) governing the first — but confirmed empirically in
+        // this app's text view, a nonzero headIndent visibly shifts the
+        // first line too, for any paragraph other than the very first one in
+        // the whole document (reproduced with a plain two-item checklist,
+        // no markdown-specific state involved: paragraph 1's own first line
+        // renders unaffected by its own headIndent, but paragraph 2's first
+        // line — and every paragraph after it — shifts right by exactly its
+        // headIndent value). The mechanism wasn't pinned down further, but
+        // it's real and severe: it visibly misaligns basically every list
+        // item after the first one in any list, checkbox or not. Since
+        // hanging indent is only ever *useful* for a line that actually
+        // wraps, and most list items (checklists especially) don't, gate it
+        // on a conservative "this line is long enough to plausibly wrap in a
+        // reasonably-sized window" character-count proxy — a real content
+        // width isn't available at this layer (StyleMap has no notion of the
+        // text container's width). This trades away the hanging indent for
+        // long-but-not-quite-wrapping lines in a narrow window (a minor
+        // cosmetic miss) in exchange for never re-triggering the shift for
+        // the much more common short-item case.
+        guard lineEnd - lineStart >= 60 else { return }
+
         var contentStart = prefixEnd
         while contentStart < lineEnd {
             let ch = text.character(at: contentStart)
@@ -658,30 +693,6 @@ private struct StyleWalker: MarkupWalker {
 
         let indentWidth = measured.size().width
         guard indentWidth > 0 else { return }
-
-        // Only worth paying for on lines with a real chance of wrapping.
-        // NSParagraphStyle.headIndent is documented to affect only a
-        // paragraph's *continuation* lines, with firstLineHeadIndent (left
-        // at 0 above) governing the first — but confirmed empirically in
-        // this app's text view, a nonzero headIndent visibly shifts the
-        // first line too, for any paragraph other than the very first one in
-        // the whole document (reproduced with a plain two-item checklist,
-        // no markdown-specific state involved: paragraph 1's own first line
-        // renders unaffected by its own headIndent, but paragraph 2's first
-        // line — and every paragraph after it — shifts right by exactly its
-        // headIndent value). The mechanism wasn't pinned down further, but
-        // it's real and severe: it visibly misaligns basically every list
-        // item after the first one in any list, checkbox or not. Since
-        // hanging indent is only ever *useful* for a line that actually
-        // wraps, and most list items (checklists especially) don't, gate it
-        // on a conservative "this line is long enough to plausibly wrap in a
-        // reasonably-sized window" character-count proxy — a real content
-        // width isn't available at this layer (StyleMap has no notion of the
-        // text container's width). This trades away the hanging indent for
-        // long-but-not-quite-wrapping lines in a narrow window (a minor
-        // cosmetic miss) in exchange for never re-triggering the shift for
-        // the much more common short-item case.
-        guard lineEnd - lineStart >= 60 else { return }
 
         let lineRange = NSRange(location: lineStart, length: lineEnd - lineStart)
         elements.append(StyledElement(
