@@ -972,4 +972,50 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertLessThan(elapsedMs, 200,
             "widening a table near the end of a large document took \(elapsedMs)ms — the frame-width fix may have started forcing full-document layout")
     }
+
+    /// Same regression as above, but wired up exactly like
+    /// `MarkdownTextView.makeNSView` — a real `NSScrollView` with horizontal
+    /// scrolling enabled, `documentView` assigned before content loads, a
+    /// zero-origin starting frame — rather than a bare `NSTextView` with no
+    /// scroll view at all. Confirms the fix holds with the real scroll
+    /// machinery in the loop, not just the layout-manager stack in isolation.
+    func testWideTableGrowsScrollableFrameWithRealScrollView() {
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.drawsBackground = false
+
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.delegate = MarkdownLayoutManagerDelegate()
+
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.isEditable = true
+        textView.isRichText = false
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+
+        scrollView.documentView = textView
+        textContainer.proseWidth = 600
+
+        let wideTable = "| A | B |\n|---|---|\n| x | " + String(repeating: "y", count: 300) + " |\n"
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: wideTable)
+
+        XCTAssertEqual(textView.frame.width, textContainer.size.width, accuracy: 1,
+            "frame must already match the container's required width immediately after the edit")
+
+        // The scroller's knob proportion is what actually gates how far the
+        // user can drag-scroll — assert on it directly, not just the frame,
+        // since that's the literal mechanism behind "bounces back short of
+        // the table's right edge".
+        let expectedProportion = scrollView.contentView.bounds.width / textContainer.size.width
+        XCTAssertEqual(scrollView.horizontalScroller?.knobProportion ?? 0, expectedProportion, accuracy: 0.01)
+    }
 }
