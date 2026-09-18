@@ -1036,12 +1036,23 @@ private struct StyleWalker: MarkupWalker {
             }
         }
 
-        // 4. Compute total table width for horizontal scrolling
-        //    Sum of max column widths + inter-column pipe gaps + safety margin
-        //    for leading/trailing pipes and font metric rounding
+        // 4. Compute total table width for horizontal scrolling. This has to be
+        // able to fit the widest row the kerning above actually renders, or that
+        // row silently word-wraps instead of scrolling (a real bug: an unrelated
+        // row's short first cell gets kerned wider than this sum accounted for).
+        // The widest render is: every column's own max width, plus
+        //   - one literal "|" glyph per pipe (columnCount + 1 of them)
+        //   - the same extra charWidth step 3's kern adds per non-last column to
+        //     land the next column's pipe in the right place — the row that
+        //     *defines* a column's max never needs it there, but some other
+        //     row's kern still pushes the table's rightmost pipe out by it
+        //   - a fixed-point buffer for NSTextContainer's default
+        //     lineFragmentPadding (5pt each side) plus a little rounding slack
+        let pipeGlyphs = columnCount + 1
+        let kernCompensation = max(0, columnCount - 1)
         let totalTableWidth = (0..<columnCount).reduce(CGFloat(0)) { sum, col in
             sum + CGFloat(maxColumnWidths[col, default: 0]) * charWidth
-        } + CGFloat(max(0, columnCount - 1)) * charWidth + 2 * charWidth
+        } + CGFloat(pipeGlyphs + kernCompensation) * charWidth + 12
         tableRegions.append((charRange: tableNS, requiredWidth: totalTableWidth))
 
         descendInto(table)

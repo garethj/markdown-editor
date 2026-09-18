@@ -838,4 +838,50 @@ final class MarkdownStyleMapTests: XCTestCase {
                              "prefixes of different widths must not collapse to one cached value")
         XCTAssertGreaterThan(indents.max() ?? 0, indents.min() ?? 0)
     }
+
+    /// Regression test for a real reported bug: a row whose *short* column
+    /// (needing kern padding to reach the column max) sits in the same row as
+    /// the cell that *defines* another column's max renders wider than
+    /// `tableRegions[0].requiredWidth` accounted for, so NSLayoutManager
+    /// silently word-wraps the row's tail instead of it just needing a
+    /// horizontal scroll like every other row. Verified end-to-end through
+    /// the real TextKit pipeline (MarkdownTextStorage → NSLayoutManager →
+    /// MarkdownTextContainer), not just the computed number, since the actual
+    /// failure only shows up once real glyph layout runs.
+    func testWideTableRowWithShortFirstColumnDoesNotWrap() throws {
+        // "Insurers and reinsurers" is far from the column-0 max ("Central
+        // banks and supervisors"), while its own column-1 cell IS the
+        // column's max — exactly the shape that previously wrapped.
+        let source = """
+        | Actor | Why not them |
+        |---|---|
+        | Insurers and reinsurers | Measure their own book. No commercial return on measuring uninsured loss, which is more than half the world's. They name the data gap themselves and do not fund closing it |
+        | Vendors | Cannot open the model without losing the product; cannot be scored without risking the product |
+        | Central banks and supervisors | Consume methods; do not fund the evaluation of methods |
+        """
+
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.delegate = MarkdownLayoutManagerDelegate()
+
+        textContainer.proseWidth = 600
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+
+        let ns = source as NSString
+        for lineStr in source.components(separatedBy: "\n") where lineStr.hasPrefix("|---") == false && lineStr.hasPrefix("|") {
+            let lineRange = ns.range(of: lineStr)
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var fragmentCount = 0
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, _ in
+                fragmentCount += 1
+            }
+            XCTAssertEqual(fragmentCount, 1,
+                "table row should render as one line fragment (scrollable), not wrap: '\(lineStr.prefix(50))...'")
+        }
+    }
 }
