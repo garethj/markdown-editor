@@ -884,4 +884,92 @@ final class MarkdownStyleMapTests: XCTestCase {
                 "table row should render as one line fragment (scrollable), not wrap: '\(lineStr.prefix(50))...'")
         }
     }
+
+    /// Regression test for a second real reported bug, found while verifying
+    /// the fix above: even once a wide table renders as a single (scrollable)
+    /// line instead of wrapping, the scroll view could not actually reach its
+    /// right edge — it "bounced back" a bit short. `NSTextView` only
+    /// auto-grows its frame to `MarkdownTextContainer.size.width` once
+    /// TextKit lays out glyphs somewhere in the newly wide region, but a
+    /// table off to the right of the *current*, narrower frame never gets
+    /// that layout on its own: the scroll view won't let the user scroll
+    /// past the stale frame to reach it. Goes through the real
+    /// `MarkdownTextStorage.replaceCharacters` edit path (not a direct
+    /// container call), since the fix specifically depends on running after
+    /// that edit's `beginEditing()`/`endEditing()` transaction has returned.
+    func testWideTableGrowsScrollableFrameWithoutWaitingForLazyLayout() {
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.delegate = MarkdownLayoutManagerDelegate()
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: textContainer)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 600, height: 0)
+        textContainer.proseWidth = 600
+
+        // Pad with enough leading prose lines that the wide table sits well
+        // past the initial viewport height, so only *visible-rect* layout
+        // (what actually happens on screen before the user scrolls) would
+        // reach it — not a forced full layout this fix must not depend on.
+        let padding = Array(repeating: "Some ordinary prose line that is not too long.", count: 200).joined(separator: "\n")
+        let wideTable = padding + "\n\n| A | B |\n|---|---|\n| x | " + String(repeating: "y", count: 300) + " |\n"
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: wideTable)
+
+        XCTAssertEqual(textView.frame.width, textContainer.size.width, accuracy: 1,
+            "the document view's frame must already be as wide as the table needs, without any layout having been forced yet")
+
+        // Layout only what would actually happen on screen before scrolling —
+        // the initial visible rect — and confirm the frame is still correct
+        // (i.e. this isn't accidentally passing because visible-rect layout
+        // alone already covers a small test document).
+        let visibleRect = NSRect(x: 0, y: 0, width: 600, height: 400)
+        _ = layoutManager.glyphRange(forBoundingRect: visibleRect, in: textContainer)
+        XCTAssertEqual(textView.frame.width, textContainer.size.width, accuracy: 1)
+    }
+
+    /// The fix above must stay cheap on a large document — this project
+    /// already fixed one regression of exactly this shape (see git commit
+    /// "Stop forcing whole-document glyph generation on every width
+    /// change"). Confirms it doesn't force layout of anything at all: a
+    /// small table right at the very end of a ~1MB document should widen the
+    /// scrollable frame just as fast as widening one in a short document.
+    func testTableWidthFixDoesNotForceFullDocumentLayoutOnLargeDocuments() {
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.delegate = MarkdownLayoutManagerDelegate()
+
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: textContainer)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 600, height: 0)
+        textContainer.proseWidth = 600
+
+        let padding = String(repeating: "Some ordinary prose line that is not too long.\n", count: 20_000)
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: padding)
+        textStorage.flushPendingStyling()
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        textStorage.replaceCharacters(
+            in: NSRange(location: (textStorage.string as NSString).length, length: 0),
+            with: "\n| A | B |\n|---|---|\n| x | " + String(repeating: "y", count: 300) + " |\n")
+        textStorage.flushPendingStyling()
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - start) / 1_000_000.0
+
+        XCTAssertEqual(textView.frame.width, textContainer.size.width, accuracy: 1)
+        XCTAssertLessThan(elapsedMs, 200,
+            "widening a table near the end of a large document took \(elapsedMs)ms — the frame-width fix may have started forcing full-document layout")
+    }
 }

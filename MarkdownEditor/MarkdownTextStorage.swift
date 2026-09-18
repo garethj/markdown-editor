@@ -78,6 +78,7 @@ final class MarkdownTextStorage: NSTextStorage {
                 // *correct*, already-regrown rect.
                 lm.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
                 lm.invalidateDisplay(forCharacterRange: range)
+                (lm.textContainers.first as? MarkdownTextContainer)?.syncTextViewFrameWidth()
             }
         }
     }

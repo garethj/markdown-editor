@@ -86,6 +86,34 @@ final class MarkdownTextContainer: NSTextContainer {
         return true
     }
 
+    /// Grows the associated text view's frame to match this container's
+    /// width, if it's fallen behind. `NSTextView`'s own auto-grow
+    /// (isHorizontallyResizable) only catches up once TextKit lays out
+    /// glyphs somewhere in the new width — but a table sitting to the right
+    /// of the *current*, narrower frame never gets that layout on its own:
+    /// the scroll view won't let the user scroll past the stale frame to
+    /// reach it. Confirmed live: a wide table's rightmost text was
+    /// unreachable, the scroll view bouncing back short of it.
+    ///
+    /// Must only be called once any in-flight `NSTextStorage` editing
+    /// transaction has fully returned — see the call site in
+    /// `MarkdownTextStorage.consumePendingDisplayInvalidation`. Setting the
+    /// frame from inside `updateContainerWidth` above (which runs mid-edit,
+    /// nested inside `beginEditing()`/`endEditing()`) gets silently reverted
+    /// by AppKit before the next line even reads it back — confirmed
+    /// empirically, the same class of ordering trap
+    /// `pendingDisplayInvalidationRange`'s own comment documents for display
+    /// invalidation. Deliberately does *not* force any layout to make the
+    /// resize "stick" (an earlier attempt forced layout for just the widest
+    /// table's own character range, which — since TextKit's lazy layout is
+    /// sequential — forced every line before it too, and hung for 100+
+    /// seconds on a large document); once called post-transaction, the plain
+    /// assignment holds on its own.
+    func syncTextViewFrameWidth() {
+        guard let textView, textView.frame.width < size.width else { return }
+        textView.frame.size.width = size.width
+    }
+
     /// Marks the whole document's layout invalid, which a width change really
     /// does require — every line has to re-wrap.
     ///
