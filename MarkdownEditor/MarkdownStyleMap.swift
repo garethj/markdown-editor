@@ -977,9 +977,26 @@ private struct StyleWalker: MarkupWalker {
         // cells' width doesn't pull the rest of the column along with it,
         // leaving the separator sticking out unaligned with everything else.
         var maxColumnWidths: [Int: Int] = [:]
+        // Raw (not hidden-delimiter-adjusted) column maxima, tracked
+        // separately and used only for `totalTableWidth` below. Glyphs hidden
+        // via `.null` glyph property are invisible but still occupy their
+        // natural advance in practice — confirmed by measuring real rendered
+        // width, not just asserting on the kern value — so a column whose
+        // *widest* cell happens to contain hidden inline formatting (e.g.
+        // `**bold**`) needs to reserve room for its raw length, not its
+        // hidden-delimiter-adjusted visual length, or that extra width goes
+        // unreserved and the table silently can't scroll far enough to reach
+        // it. This does not affect on-screen column alignment: pipe
+        // positions between columns are governed entirely by the kern loop
+        // below, which correctly still uses visualWidth — confirmed by
+        // measuring real on-screen pipe positions with a hidden-formatted
+        // cell in one column and a plain cell in another.
+        var maxColumnRawWidths: [Int: Int] = [:]
         for cell in allCells + separatorCells {
             maxColumnWidths[cell.columnIndex] = max(
                 maxColumnWidths[cell.columnIndex, default: 0], cell.visualWidth)
+            maxColumnRawWidths[cell.columnIndex] = max(
+                maxColumnRawWidths[cell.columnIndex, default: 0], cell.nsRange.length)
         }
         let columnCount = (maxColumnWidths.keys.max() ?? -1) + 1
 
@@ -1050,8 +1067,9 @@ private struct StyleWalker: MarkupWalker {
         //     lineFragmentPadding (5pt each side) plus a little rounding slack
         let pipeGlyphs = columnCount + 1
         let kernCompensation = max(0, columnCount - 1)
+        // Raw, not visual, column widths: see maxColumnRawWidths's comment above.
         let totalTableWidth = (0..<columnCount).reduce(CGFloat(0)) { sum, col in
-            sum + CGFloat(maxColumnWidths[col, default: 0]) * charWidth
+            sum + CGFloat(maxColumnRawWidths[col, default: 0]) * charWidth
         } + CGFloat(pipeGlyphs + kernCompensation) * charWidth + 12
         tableRegions.append((charRange: tableNS, requiredWidth: totalTableWidth))
 

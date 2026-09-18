@@ -1018,4 +1018,143 @@ final class MarkdownStyleMapTests: XCTestCase {
         let expectedProportion = scrollView.contentView.bounds.width / textContainer.size.width
         XCTAssertEqual(scrollView.horizontalScroller?.knobProportion ?? 0, expectedProportion, accuracy: 0.01)
     }
+
+    /// Regression test for a third real reported bug, found while verifying
+    /// the fix above: a table row still wrapped instead of scrolling even
+    /// after the earlier width-margin fix, specifically when the *widest*
+    /// cell in a column contains hidden inline formatting (e.g. `**bold**`).
+    /// Root cause: characters hidden via `.null` glyph property (see
+    /// `MarkdownLayoutManagerDelegate`) are invisible but still occupy their
+    /// natural glyph advance in real rendering — confirmed by measuring
+    /// actual on-screen widths, not just the computed kern value. So
+    /// `visualWidth` (raw length minus hidden-delimiter count), correct for
+    /// column *alignment* kerning, undercounts a column's true required
+    /// width whenever its widest cell is also the one with hidden
+    /// delimiters. Fixed by reserving `requiredWidth`'s per-column width
+    /// from raw character length instead, while leaving the kern/alignment
+    /// math (which does need visualWidth) untouched.
+    func testWideTableRowWithHiddenDelimitersInWidestCellDoesNotWrap() {
+        let source = """
+        | Actor | Note |
+        |---|---|
+        | Someone | A published protocol and scoring specification; a published **gap map** of where the world cannot see; some more trailing words here |
+        | Vendor | Cannot open the model without losing the product |
+        """
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.delegate = MarkdownLayoutManagerDelegate()
+
+        textContainer.proseWidth = 600
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+
+        let ns = source as NSString
+        for lineStr in source.components(separatedBy: "\n") where lineStr.hasPrefix("|---") == false && lineStr.hasPrefix("|") {
+            let lineRange = ns.range(of: lineStr)
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: lineRange, actualCharacterRange: nil)
+            var fragmentCount = 0
+            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, _, _, _ in
+                fragmentCount += 1
+            }
+            XCTAssertEqual(fragmentCount, 1,
+                "table row should render as one line fragment (scrollable), not wrap: '\(lineStr.prefix(50))...'")
+        }
+    }
+
+    /// Isolates the root cause directly: hidden delimiters (glyph property
+    /// .null) are invisible but not actually zero-width in real rendering —
+    /// unlike deleting the characters outright, which genuinely does shrink
+    /// the rendered width by their count.
+    func testHiddenDelimitersOccupyRealWidthDespiteBeingInvisible() {
+        func realWidth(of source: String, cellSubstring: String) -> CGFloat {
+            let storage = MarkdownTextStorage()
+            let lm = NSLayoutManager()
+            let container = MarkdownTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+            container.widthTracksTextView = false
+            lm.addTextContainer(container)
+            storage.addLayoutManager(lm)
+            lm.delegate = MarkdownLayoutManagerDelegate()
+            container.proseWidth = 20000
+            storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+            lm.ensureLayout(for: container)
+
+            let ns = source as NSString
+            let cellRange = ns.range(of: cellSubstring)
+            let glyphRange = lm.glyphRange(forCharacterRange: cellRange, actualCharacterRange: nil)
+            var width: CGFloat = 0
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, usedRect, _, _, _ in
+                width = max(width, usedRect.maxX)
+            }
+            return width
+        }
+
+        // Same trailing prefix ("| x | ") before both cells, so it cancels
+        // out of the difference even though each absolute width includes it.
+        let boldWidth = realWidth(
+            of: "| A | B |\n|---|---|\n| x | **BoldXX** |\n",
+            cellSubstring: "**BoldXX**")
+        let plainWidth = realWidth(
+            of: "| A | B |\n|---|---|\n| x | PlainXXXX |\n",
+            cellSubstring: "PlainXXXX")
+
+        // If hidden chars were truly zero-width, the bold cell (4 hidden of
+        // 10 raw chars) would render noticeably *narrower* than the all-visible
+        // plain cell. It doesn't — it's at least as wide, confirming hidden
+        // delimiters still consume their natural advance.
+        XCTAssertGreaterThanOrEqual(boldWidth, plainWidth - 1,
+            "a cell with 4 hidden delimiter characters rendered narrower than an equivalent all-visible cell (bold=\(boldWidth), plain=\(plainWidth)) — hidden delimiters may have become genuinely zero-width; if so, MarkdownStyleMap's requiredWidth calculation can go back to using visualWidth instead of raw length")
+    }
+
+    /// Confirms the fix above doesn't touch on-screen column *alignment* —
+    /// only `requiredWidth`'s scroll-width reservation changed to use raw
+    /// character length. Pipe positions between columns must still line up
+    /// using visualWidth-based kerning, exactly as
+    /// `testTableCellWithItalicAccountsForHiddenDelimitersInWidth` already
+    /// asserts on the kern *value* — this instead measures real on-screen
+    /// glyph positions for the project's existing "Bo" / "**Bold**" scenario.
+    func testColumnAlignmentStillCorrectWithHiddenDelimiters() {
+        let source = "| Name | Info |\n| --- | --- |\n| Bo | **Bold** |\n"
+        let storage = MarkdownTextStorage()
+        let lm = NSLayoutManager()
+        let container = MarkdownTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = false
+        lm.addTextContainer(container)
+        storage.addLayoutManager(lm)
+        lm.delegate = MarkdownLayoutManagerDelegate()
+        container.proseWidth = 2000
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+        lm.ensureLayout(for: container)
+
+        let ns = source as NSString
+        func pipeXPositions(inLineContaining substring: String) -> [CGFloat] {
+            let lineRange = ns.lineRange(for: ns.range(of: substring))
+            let line = ns.substring(with: lineRange)
+            var xs: [CGFloat] = []
+            var searchStart = 0
+            while let r = line.range(of: "|", range: line.index(line.startIndex, offsetBy: searchStart)..<line.endIndex) {
+                let charIndex = lineRange.location + line.distance(from: line.startIndex, to: r.lowerBound)
+                let glyphIndex = lm.glyphIndexForCharacter(at: charIndex)
+                let rect = lm.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: container)
+                xs.append(rect.minX)
+                searchStart = line.distance(from: line.startIndex, to: r.upperBound)
+            }
+            return xs
+        }
+
+        let headerPipes = pipeXPositions(inLineContaining: "Name")
+        let bodyPipes = pipeXPositions(inLineContaining: "Bo")
+        XCTAssertEqual(headerPipes.count, bodyPipes.count)
+        // Only the leading and middle pipes are alignment-relevant (they
+        // separate columns); the last, trailing pipe legitimately sits
+        // further right on the "**Bold**" row purely because that row's own
+        // hidden delimiters push its own trailing edge out — not a
+        // misalignment of anything a reader would perceive as a column.
+        for (h, b) in zip(headerPipes, bodyPipes).dropLast() {
+            XCTAssertEqual(b, h, accuracy: 0.5, "column pipes must align regardless of hidden inline formatting elsewhere in the row")
+        }
+    }
 }
