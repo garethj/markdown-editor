@@ -13,7 +13,7 @@ See `EXAMPLE.md` for a live showcase of every construct below — open it in the
 - **Supports headings** (ATX `#`–`######` and Setext `===`/`---`), emphasis, strikethrough, a `==highlight==` extension, inline and fenced code, links (bracketed and bare autolinks), blockquotes (including CommonMark lazy continuation), thematic breaks, and ordered/unordered/task lists with nested depth and hanging-indented wrapped lines
 - **Task lists with clickable checkboxes** — click `[ ]`/`[x]` directly to toggle, no need to select the line
 - **Renders tables** with hidden separator rows, auto-aligned columns via kerning (computed from each cell's visual width, ignoring hidden inline delimiters), and horizontal scrolling for wide tables while prose still wraps at the window edge
-- **Table of contents sidebar**, toggleable from the toolbar, built from the document's headings and kept in sync as you type
+- **Table of contents sidebar**, hidden by default and toggleable from the toolbar, built from the document's headings and kept in sync as you type
 - **Find bar** (Cmd+F) for in-document search
 - **Exports to PDF** (Cmd+Shift+E) via a headless WebKit render of the rendered HTML
 - **Status bar** with live word count, character count, and estimated reading time

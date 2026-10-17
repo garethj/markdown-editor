@@ -9,12 +9,11 @@ struct EditorView: View {
     var fileURL: URL?
     @Environment(\.undoManager) var undoManager
     @StateObject private var tocModel = TableOfContentsModel()
-    @State private var showTOC: Bool
+    @State private var showTOC = false
 
     init(document: MarkdownDocument, fileURL: URL?) {
         self.document = document
         self.fileURL = fileURL
-        _showTOC = State(initialValue: Self.headingCount(in: document.text) > 1)
     }
 
     var body: some View {
@@ -47,26 +46,6 @@ struct EditorView: View {
                 onCancel: { NSApp.keyWindow?.performClose(nil) }
             )
         }
-    }
-
-    /// Crude but cheap heading count for the initial sidebar-visibility default,
-    /// computed once from the raw text before any AST parse has happened.
-    private static func headingCount(in text: String) -> Int {
-        var count = 0
-        for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix("#") else { continue }
-            var hashes = 0
-            for ch in line {
-                if ch == "#" { hashes += 1 } else { break }
-            }
-            guard hashes >= 1 && hashes <= 6 else { continue }
-            let rest = line.dropFirst(hashes)
-            if rest.isEmpty || rest.first == " " {
-                count += 1
-            }
-        }
-        return count
     }
 }
 
