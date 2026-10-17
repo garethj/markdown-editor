@@ -908,14 +908,41 @@ private struct StyleWalker: MarkupWalker {
         // accent color, not to feed activeSpanRange/glyph-hiding.
         var pipeRanges: [NSRange] = []
 
-        // Collect cell info for column width calculation.
-        // visualWidth accounts for hidden inline delimiters (**, _, `, ~~, []())
-        // so kern padding aligns the visible content, not the raw character count.
+        // Collect cell info for column width calculation. Widths are in
+        // points, measured from the glyphs the cell actually renders: a symbol
+        // the code font has no glyph for (✓, ✉) falls back to another font at
+        // a different advance, so a character count misplaces every pipe after
+        // it. visualWidth also discounts hidden inline delimiters (**, _, `,
+        // ~~, []()) so kern padding aligns the visible content; rawWidth
+        // doesn't (see maxColumnRawWidths).
         struct CellInfo {
             let nsRange: NSRange
-            let visualWidth: Int
+            let visualWidth: CGFloat
+            let rawWidth: CGFloat
             let isHeader: Bool
             let columnIndex: Int
+        }
+        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
+        let fullText = converter.fullString as NSString
+        // Flag columns repeat the same few strings ("✓", "✓ new") down every
+        // row, so measure each distinct non-ASCII string once per table.
+        var measuredWidths: [String: CGFloat] = [:]
+        func cellInfo(_ cell: Table.Cell, isHeader: Bool, columnIndex: Int) -> CellInfo? {
+            guard let cr = cell.range, var ns = converter.nsRange(for: cr),
+                  ns.location + ns.length <= textLength else { return nil }
+            // cmark reports an empty cell's range one character too long,
+            // swallowing the pipe that closes it (`| | y |` gives the first
+            // cell " |"). Left in, that pipe counts toward the cell's width
+            // and carries its kern, shifting the rest of the row.
+            if cell.childCount == 0, ns.length > 0,
+               fullText.character(at: NSMaxRange(ns) - 1) == Self.pipeUTF16 {
+                ns.length -= 1
+            }
+            let raw = renderedWidth(of: ns, in: fullText, isHeader: isHeader,
+                                    charWidth: charWidth, cache: &measuredWidths)
+            let hidden = CGFloat(countHiddenDelimiters(in: cell)) * charWidth
+            return CellInfo(nsRange: ns, visualWidth: max(0, raw - hidden), rawWidth: raw,
+                            isHeader: isHeader, columnIndex: columnIndex)
         }
         var allCells: [CellInfo] = []
         // Separator row's own dash/colon runs. Kept in a separate array from
@@ -930,11 +957,8 @@ private struct StyleWalker: MarkupWalker {
             collectPipeRanges(head, nsRange: headNS, into: &pipeRanges)
 
             for (colIdx, cell) in head.cells.enumerated() {
-                if let cr = cell.range, let ns = converter.nsRange(for: cr),
-                   ns.location + ns.length <= textLength {
-                    let hidden = countHiddenDelimiters(in: cell)
-                    allCells.append(CellInfo(nsRange: ns, visualWidth: max(0, ns.length - hidden),
-                                             isHeader: true, columnIndex: colIdx))
+                if let info = cellInfo(cell, isHeader: true, columnIndex: colIdx) {
+                    allCells.append(info)
                 }
             }
 
@@ -950,7 +974,8 @@ private struct StyleWalker: MarkupWalker {
                     let sepRange = NSRange(location: sepStart, length: sepEnd - sepStart - 1)
                     pipeRanges.append(sepRange)
                     for (colIdx, segment) in separatorColumnRanges(sepRange, in: converter.fullString).enumerated() {
-                        separatorCells.append(CellInfo(nsRange: segment, visualWidth: segment.length,
+                        let width = CGFloat(segment.length) * charWidth
+                        separatorCells.append(CellInfo(nsRange: segment, visualWidth: width, rawWidth: width,
                                                        isHeader: false, columnIndex: colIdx))
                     }
                 }
@@ -960,11 +985,8 @@ private struct StyleWalker: MarkupWalker {
                         collectPipeRanges(row, nsRange: rowNS, into: &pipeRanges)
 
                         for (colIdx, cell) in row.cells.enumerated() {
-                            if let cr = cell.range, let ns = converter.nsRange(for: cr),
-                               ns.location + ns.length <= textLength {
-                                let hidden = countHiddenDelimiters(in: cell)
-                                allCells.append(CellInfo(nsRange: ns, visualWidth: max(0, ns.length - hidden),
-                                                         isHeader: false, columnIndex: colIdx))
+                            if let info = cellInfo(cell, isHeader: false, columnIndex: colIdx) {
+                                allCells.append(info)
                             }
                         }
                     }
@@ -976,7 +998,7 @@ private struct StyleWalker: MarkupWalker {
         // runs count too — otherwise widening the separator past the real
         // cells' width doesn't pull the rest of the column along with it,
         // leaving the separator sticking out unaligned with everything else.
-        var maxColumnWidths: [Int: Int] = [:]
+        var maxColumnWidths: [Int: CGFloat] = [:]
         // Raw (not hidden-delimiter-adjusted) column maxima, tracked
         // separately and used only for `totalTableWidth` below. Glyphs hidden
         // via `.null` glyph property are invisible but still occupy their
@@ -991,17 +1013,14 @@ private struct StyleWalker: MarkupWalker {
         // below, which correctly still uses visualWidth — confirmed by
         // measuring real on-screen pipe positions with a hidden-formatted
         // cell in one column and a plain cell in another.
-        var maxColumnRawWidths: [Int: Int] = [:]
+        var maxColumnRawWidths: [Int: CGFloat] = [:]
         for cell in allCells + separatorCells {
             maxColumnWidths[cell.columnIndex] = max(
                 maxColumnWidths[cell.columnIndex, default: 0], cell.visualWidth)
             maxColumnRawWidths[cell.columnIndex] = max(
-                maxColumnRawWidths[cell.columnIndex, default: 0], cell.nsRange.length)
+                maxColumnRawWidths[cell.columnIndex, default: 0], cell.rawWidth)
         }
         let columnCount = (maxColumnWidths.keys.max() ?? -1) + 1
-
-        // Character advancement for monospace font
-        let charWidth = MarkdownTheme.shared.codeFont.maximumAdvancement.width
 
         // 1. Whole table: monospace font. Pipes and the separator row stay
         // visible (no delimiterRanges) so table boundaries read at a glance.
@@ -1036,14 +1055,16 @@ private struct StyleWalker: MarkupWalker {
         // 3. Column padding: kern on last character of each cell pads to max visual width.
         //    Also compensates for hidden inter-column pipes (1 charWidth each).
         //    Separator dash-runs are included so its pipes align with the rest of the table.
+        //    An empty cell with no padding (`||`) has no character of its own,
+        //    so its kern goes on the opening pipe, which sits just before it.
         for cell in allCells + separatorCells {
             let maxWidth = maxColumnWidths[cell.columnIndex, default: cell.visualWidth]
             let deficit = maxWidth - cell.visualWidth
             let isLastColumn = cell.columnIndex == columnCount - 1
-            let extraChars = deficit + (isLastColumn ? 0 : 1)
-            if extraChars > 0 && cell.nsRange.length > 0 {
-                let lastCharRange = NSRange(location: NSMaxRange(cell.nsRange) - 1, length: 1)
-                let kernValue = CGFloat(extraChars) * charWidth
+            let kernValue = deficit + (isLastColumn ? 0 : charWidth)
+            let lastCharIndex = NSMaxRange(cell.nsRange) - 1
+            if kernValue > 0.01 && lastCharIndex >= tableNS.location {
+                let lastCharRange = NSRange(location: lastCharIndex, length: 1)
                 elements.append(StyledElement(
                     fullRange: lastCharRange,
                     contentRange: lastCharRange,
@@ -1069,11 +1090,41 @@ private struct StyleWalker: MarkupWalker {
         let kernCompensation = max(0, columnCount - 1)
         // Raw, not visual, column widths: see maxColumnRawWidths's comment above.
         let totalTableWidth = (0..<columnCount).reduce(CGFloat(0)) { sum, col in
-            sum + CGFloat(maxColumnRawWidths[col, default: 0]) * charWidth
+            sum + maxColumnRawWidths[col, default: 0]
         } + CGFloat(pipeGlyphs + kernCompensation) * charWidth + 12
         tableRegions.append((charRange: tableNS, requiredWidth: totalTableWidth))
 
         descendInto(table)
+    }
+
+    private static let pipeUTF16: unichar = 0x7C
+
+    /// Width in points of a cell's source text as the table renders it. ASCII
+    /// is always in the monospaced code font, so it's a plain multiple of
+    /// `charWidth`; anything else is laid out for real, since it may be a
+    /// symbol drawn from a fallback font at its own advance.
+    private func renderedWidth(of range: NSRange, in text: NSString, isHeader: Bool,
+                               charWidth: CGFloat, cache: inout [String: CGFloat]) -> CGFloat {
+        var isASCII = true
+        for i in range.location..<NSMaxRange(range) where text.character(at: i) > 0x7F {
+            isASCII = false
+            break
+        }
+        if isASCII { return CGFloat(range.length) * charWidth }
+
+        let string = text.substring(with: range)
+        let key = (isHeader ? "H" : "B") + string
+        if let cached = cache[key] { return cached }
+        let attributes = isHeader ? MarkdownTheme.shared.tableHeaderAttributes
+                                  : MarkdownTheme.shared.tableAttributes
+        // fixAttributes runs the same font substitution NSTextStorage does
+        // before layout; measuring without it lets CoreText pick its own
+        // cascade font, which for ✉ is narrower than the one that draws.
+        let measured = NSMutableAttributedString(string: string, attributes: attributes)
+        measured.fixAttributes(in: NSRange(location: 0, length: measured.length))
+        let width = measured.size().width
+        cache[key] = width
+        return width
     }
 
     /// Collects pipe/gap ranges for a single table row (gaps between row bounds and cell ranges).

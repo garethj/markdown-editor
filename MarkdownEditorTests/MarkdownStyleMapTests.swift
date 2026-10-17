@@ -1157,4 +1157,59 @@ final class MarkdownStyleMapTests: XCTestCase {
             XCTAssertEqual(b, h, accuracy: 0.5, "column pipes must align regardless of hidden inline formatting elsewhere in the row")
         }
     }
+
+    /// Regression for a table whose flag columns held symbols the code font
+    /// has no glyph for (✓, ✉ fall back to another font at a different
+    /// advance) and empty cells (`|  |`), written unpadded the way a
+    /// generator emits GFM. Column widths were counted in characters, so the
+    /// fallback glyphs and the unkerned empty cells drifted every row's pipes
+    /// to a different x. Measures real laid-out pipe positions per row.
+    func testTableColumnsAlignWithSymbolGlyphsAndEmptyCells() {
+        let source = """
+        | Name | Title | Organisation | S | Met | LinkedIn | Contacts | Contacted since | Notes |
+        |------|-------|--------------|---|-----|----------|----------|-----------------|-------|
+        | Oliver Bettis | Planetary Solvency representative | Institute & Faculty of Actuaries |  | ✓ | ✓ | ✓ |  | Planetary Solvency gathering, Sun 11 Oct |
+        | Oliver Cronk | CTO | Planetary Solvency |  | ✓ | ✓ 16 Oct | ✓ new | ✓ LinkedIn 16 Oct | Eventee connected |
+        | Alex Wilks | — | Planetary Solvency |  | ? | ✓ |  |  | alex@example.com |
+        | Melissa Barnes | Executive Director | Arête Glacier Initiative | S |  |  |  |  |  |
+        | Brad Ack | CEO | Ocean Visions | ✉ |  |  |  |  | 26 institutional partners |
+        | Mindahi Crescencio Bastida Muñoz | Founder | The Earth Elders |  |  |  |  |  |  |
+        | Adam Błażowski | Chair, Supervisory Board | WePlanet |  |  |  |  |  |  |
+        | Alexis Abramson | Dean | Columbia Climate School |  |  |  |  |  |  |
+        | Empty | | | | | | | | |
+
+        """
+        let storage = MarkdownTextStorage()
+        let lm = NSLayoutManager()
+        let container = MarkdownTextContainer(containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = false
+        lm.addTextContainer(container)
+        storage.addLayoutManager(lm)
+        lm.delegate = MarkdownLayoutManagerDelegate()
+        container.proseWidth = 2000
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+        lm.ensureLayout(for: container)
+
+        let ns = source as NSString
+        var rows: [(line: String, pipes: [CGFloat])] = []
+        ns.enumerateSubstrings(in: NSRange(location: 0, length: ns.length), options: .byLines) { line, lineRange, _, _ in
+            guard let line = line, line.hasPrefix("|") else { return }
+            var xs: [CGFloat] = []
+            for offset in 0..<lineRange.length where ns.character(at: lineRange.location + offset) == 0x7C {
+                let glyphIndex = lm.glyphIndexForCharacter(at: lineRange.location + offset)
+                xs.append(lm.boundingRect(forGlyphRange: NSRange(location: glyphIndex, length: 1), in: container).minX)
+            }
+            rows.append((line, xs))
+        }
+
+        let header = rows[0].pipes
+        XCTAssertEqual(header.count, 10)
+        for row in rows.dropFirst() {
+            XCTAssertEqual(row.pipes.count, header.count, "'\(row.line.prefix(40))'")
+            for (column, (h, x)) in zip(header, row.pipes).enumerated() {
+                XCTAssertEqual(x, h, accuracy: 0.5,
+                    "pipe \(column) of '\(row.line.prefix(40))' sits at \(x), header's at \(h)")
+            }
+        }
+    }
 }

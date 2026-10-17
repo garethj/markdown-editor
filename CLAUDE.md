@@ -158,7 +158,7 @@ This project got this wrong once already: list bullets used to be hidden and rep
 
 ### Table layout
 
-`MarkdownTextContainer` overrides `lineFragmentRect(forProposedRect:at:)` to return wider rects for table lines, enabling horizontal scrolling for wide tables while prose wraps at window width. Column alignment is achieved with `.kern` attributes on the last character of each cell, computed from max visual column widths (accounting for hidden inline delimiters).
+`MarkdownTextContainer` overrides `lineFragmentRect(forProposedRect:at:)` to return wider rects for table lines, enabling horizontal scrolling for wide tables while prose wraps at window width. Column alignment is achieved with `.kern` attributes on the last character of each cell, computed from max visual column widths (accounting for hidden inline delimiters). Widths are in points, not characters: ASCII is a multiple of the code font's advance, anything else is measured after `fixAttributes` (the same font substitution the text storage does — measuring without it picks a different, narrower fallback for ✉). cmark reports an empty cell's range one character too long, swallowing its closing pipe; `visitTable` trims it.
 
 ### Cursor reveal
 

@@ -12,7 +12,7 @@ See `EXAMPLE.md` for a live showcase of every construct below — open it in the
 - **Merges nested formatting** correctly, so `_text **bold**_` renders the inner word as bold-italic rather than just whichever style was applied last
 - **Supports headings** (ATX `#`–`######` and Setext `===`/`---`), emphasis, strikethrough, a `==highlight==` extension, inline and fenced code, links (bracketed and bare autolinks), blockquotes (including CommonMark lazy continuation), thematic breaks, and ordered/unordered/task lists with nested depth and hanging-indented wrapped lines
 - **Task lists with clickable checkboxes** — click `[ ]`/`[x]` directly to toggle, no need to select the line
-- **Renders tables** with hidden separator rows, auto-aligned columns via kerning (computed from each cell's visual width, ignoring hidden inline delimiters), and horizontal scrolling for wide tables while prose still wraps at the window edge
+- **Renders tables** with accent-colored pipes and separator rows, auto-aligned columns via kerning (computed from each cell's rendered width, ignoring hidden inline delimiters, so unpadded source, empty cells and fallback-font symbols like ✓ still line up), and horizontal scrolling for wide tables while prose still wraps at the window edge
 - **Table of contents sidebar**, hidden by default and toggleable from the toolbar, built from the document's headings and kept in sync as you type
 - **Find bar** (Cmd+F) for in-document search
 - **Exports to PDF** (Cmd+Shift+E) via a headless WebKit render of the rendered HTML
@@ -37,7 +37,7 @@ Steps 1–3 are cheap enough to run inline for almost any document, and that's w
 
 ## Tables
 
-Tables get special treatment. The separator row (`|---|---|`) is hidden entirely; the pipe characters stay visible, recolored in the accent color, so table structure still reads at a glance. Columns stay aligned through `.kern` attributes on each cell's last character, computed from the maximum visual width per column — "visual width" subtracts hidden inline delimiters, so a cell containing `**bold**` (4 hidden characters) still gets the right padding. A custom text container widens table line fragments so wide tables scroll horizontally instead of wrapping, while ordinary prose keeps wrapping at the window edge.
+Tables get special treatment. The pipe characters and the separator row (`|---|---|`) stay visible, recolored in the accent color, so table structure reads at a glance. Columns stay aligned through `.kern` attributes on each cell's last character, computed from the maximum visual width per column. Widths are measured in points from the glyphs each cell draws rather than counted in characters, because a symbol the monospaced font lacks (✓, ✉) falls back to another font at a different advance. "Visual width" also subtracts hidden inline delimiters, so a cell containing `**bold**` (4 hidden characters) still gets the right padding. The file itself is never reformatted: the padding exists only on screen. A custom text container widens table line fragments so wide tables scroll horizontally instead of wrapping, while ordinary prose keeps wrapping at the window edge.
 
 ## Save behaviour
 

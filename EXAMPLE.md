@@ -103,6 +103,14 @@ Pipes and the separator row stay visible, colored in the accent color so table s
 | Bob     | Designer  | Active |
 | Charlie | **Lead**  | _Away_ |
 
+Cells don't need padding in the source. Widths are measured from the glyphs a cell actually draws, so symbols the monospaced font lacks (✓, ✉) and empty cells still land in a straight column:
+
+| Name | Met | Contacted | Notes |
+|---|---|---|---|
+| Arête Glacier | ✓ | ✉ | — |
+| Muñoz |  | ✓ new |  |
+| Błażowski | | | |
+
 ## Formatting nested inside other constructs
 
 - Emphasis works inside list items — **bold with _nested italic_ inside a list item**.
