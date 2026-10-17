@@ -22,6 +22,7 @@
 		4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000011 /* MarkdownPDFExporter.swift */; };
 		4A0000000000000000000010 /* TableOfContentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000012 /* TableOfContentsView.swift */; };
 		4A0000000000000000000011 /* ExternalChangeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000013 /* ExternalChangeResolver.swift */; };
+		4A0000000000000000000012 /* WindowFramePlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000014 /* WindowFramePlacement.swift */; };
 		4A0000000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 4B0000000000000000000009 /* Assets.xcassets */; };
 		4A000000000000000000000A /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 5B0000000000000000000002 /* Markdown */; };
 		7A0000000000000000000001 /* MarkdownStyleMapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000001 /* MarkdownStyleMapTests.swift */; };
@@ -30,6 +31,7 @@
 		7A0000000000000000000004 /* ListContinuationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000004 /* ListContinuationTests.swift */; };
 		7A0000000000000000000005 /* MarkdownDocumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000005 /* MarkdownDocumentTests.swift */; };
 		7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000006 /* ExternalChangeResolverTests.swift */; };
+		7A0000000000000000000009 /* WindowFramePlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000013 /* WindowFramePlacementTests.swift */; };
 		7A0000000000000000000007 /* EditingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000011 /* EditingPerformanceTests.swift */; };
 		7A0000000000000000000008 /* TableOfContentsModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B0000000000000000000012 /* TableOfContentsModelTests.swift */; };
 		8A0000000000000000000001 /* UITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000001 /* UITestSupport.swift */; };
@@ -60,12 +62,14 @@
 		4B0000000000000000000011 /* MarkdownPDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPDFExporter.swift; sourceTree = "<group>"; };
 		4B0000000000000000000012 /* TableOfContentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableOfContentsView.swift; sourceTree = "<group>"; };
 		4B0000000000000000000013 /* ExternalChangeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeResolver.swift; sourceTree = "<group>"; };
+		4B0000000000000000000014 /* WindowFramePlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowFramePlacement.swift; sourceTree = "<group>"; };
 		7B0000000000000000000001 /* MarkdownStyleMapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownStyleMapTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000002 /* MarkdownTextStorageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTextStorageTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000003 /* MarkdownHTMLRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownHTMLRendererTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000004 /* ListContinuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListContinuationTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000005 /* MarkdownDocumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocumentTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000006 /* ExternalChangeResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalChangeResolverTests.swift; sourceTree = "<group>"; };
+		7B0000000000000000000013 /* WindowFramePlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowFramePlacementTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000011 /* EditingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditingPerformanceTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000012 /* TableOfContentsModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TableOfContentsModelTests.swift; sourceTree = "<group>"; };
 		7B0000000000000000000007 /* MarkdownEditorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MarkdownEditorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -132,6 +136,7 @@
 				4B0000000000000000000011 /* MarkdownPDFExporter.swift */,
 				4B0000000000000000000012 /* TableOfContentsView.swift */,
 				4B0000000000000000000013 /* ExternalChangeResolver.swift */,
+				4B0000000000000000000014 /* WindowFramePlacement.swift */,
 				4B0000000000000000000009 /* Assets.xcassets */,
 				4B000000000000000000000A /* Info.plist */,
 				4B000000000000000000000B /* MarkdownEditor.entitlements */,
@@ -150,6 +155,7 @@
 				7B0000000000000000000006 /* ExternalChangeResolverTests.swift */,
 				7B0000000000000000000011 /* EditingPerformanceTests.swift */,
 				7B0000000000000000000012 /* TableOfContentsModelTests.swift */,
+				7B0000000000000000000013 /* WindowFramePlacementTests.swift */,
 			);
 			path = MarkdownEditorTests;
 			sourceTree = "<group>";
@@ -328,6 +334,7 @@
 				4A000000000000000000000F /* MarkdownPDFExporter.swift in Sources */,
 				4A0000000000000000000010 /* TableOfContentsView.swift in Sources */,
 				4A0000000000000000000011 /* ExternalChangeResolver.swift in Sources */,
+				4A0000000000000000000012 /* WindowFramePlacement.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,6 +350,7 @@
 				7A0000000000000000000006 /* ExternalChangeResolverTests.swift in Sources */,
 				7A0000000000000000000007 /* EditingPerformanceTests.swift in Sources */,
 				7A0000000000000000000008 /* TableOfContentsModelTests.swift in Sources */,
+				7A0000000000000000000009 /* WindowFramePlacementTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -306,16 +306,38 @@ final class EditorTextView: NSTextView {
 /// which cedes a full run-loop turn) wins that race in the common case; the two
 /// follow-up rechecks catch the rarer case where SwiftUI's own sizing pass is
 /// itself deferred and still clobbers the restored frame after we've set it.
+///
+/// The frame is read with `setFrameUsingName` and written with `saveFrame(usingName:)`
+/// rather than `setFrameAutosaveName`: AppKit lets only one open window hold an
+/// autosave name, so with two files opened together the second window's claim
+/// silently failed and it kept SwiftUI's default size instead of the saved one.
+/// Reading and writing explicitly lets every window share the same saved frame,
+/// and whichever window was last resized or moved sets it for the next one.
 final class MarkdownScrollView: NSScrollView {
-    private static let frameAutosaveName = "MarkdownEditorDocument"
+    private static let frameName = "MarkdownEditorDocument"
+    /// Windows already showing a document, so a new one can cascade off them.
+    private static let documentWindows = NSHashTable<NSWindow>.weakObjects()
     private var didRestoreFrame = false
+    private var frameObservers: [NSObjectProtocol] = []
+
+    deinit {
+        frameObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let window, !didRestoreFrame else { return }
         didRestoreFrame = true
 
-        window.setFrameAutosaveName(Self.frameAutosaveName)
+        if window.setFrameUsingName(Self.frameName) {
+            let occupied = Self.documentWindows.allObjects
+                .filter { $0 !== window && $0.isVisible }
+                .map(\.frame)
+            let placed = WindowFramePlacement.placement(
+                for: window.frame, avoiding: occupied, within: window.screen?.visibleFrame)
+            window.setFrame(placed, display: false)
+        }
+        Self.documentWindows.add(window)
         let restoredFrame = window.frame
 
         func reassertIfClobbered() {
@@ -324,7 +346,22 @@ final class MarkdownScrollView: NSScrollView {
             }
         }
         DispatchQueue.main.async { reassertIfClobbered() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { reassertIfClobbered() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            reassertIfClobbered()
+            // Only start saving once our own placement and SwiftUI's sizing pass
+            // have settled, so neither gets recorded as the user's chosen frame.
+            self?.observeFrameChanges(of: window)
+        }
+    }
+
+    private func observeFrameChanges(of window: NSWindow) {
+        let save: (Notification) -> Void = { [weak window] _ in
+            guard let window, !window.styleMask.contains(.fullScreen) else { return }
+            window.saveFrame(usingName: Self.frameName)
+        }
+        frameObservers = [NSWindow.didResizeNotification, NSWindow.didMoveNotification].map {
+            NotificationCenter.default.addObserver(forName: $0, object: window, queue: .main, using: save)
+        }
     }
 }
 

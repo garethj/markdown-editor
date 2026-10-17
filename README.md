@@ -20,6 +20,7 @@ See `EXAMPLE.md` for a live showcase of every construct below — open it in the
 - **Watches the file on disk** for external changes and offers to reload, with conflict handling for edits made both in the app and externally since the last save
 - **Warns before opening very large files** (>512KB), since every keystroke re-parses the whole document
 - **Supports dark mode** with automatic theme switching
+- **Remembers window size and position** — every new window opens at the frame you last resized or moved one to, and windows opened together (e.g. several files from Finder) cascade so they don't stack exactly on top of each other
 
 ## How formatting works
 
@@ -96,6 +97,7 @@ Two test targets, at different tiers:
 | `MarkdownTheme.swift` | Fonts, colors, cached attribute dictionaries, dark mode |
 | `FileWatcher.swift` | Raw `DispatchSource` inode-level file monitoring |
 | `ExternalChangeResolver.swift` | Decision logic for merging vs. prompting on external file changes |
+| `WindowFramePlacement.swift` | Cascade placement for new document windows opened from the shared saved frame |
 | `TableOfContentsView.swift` | Heading sidebar, kept in sync with the document |
 | `TableOverlayView.swift` | Table-specific rendering overlay |
 | `FindBarView.swift` / `FindState.swift` | In-document find UI and state |
