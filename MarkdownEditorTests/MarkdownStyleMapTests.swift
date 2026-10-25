@@ -500,10 +500,6 @@ final class MarkdownStyleMapTests: XCTestCase {
     /// the paragraph's left margin — this is what headIndent controls.
     /// firstLineHeadIndent must stay 0 since the first line's own indent
     /// already comes from real marker/space characters in the source.
-    ///
-    /// Source text must run at least 60 characters (see
-    /// `testHangingIndentSkippedForShortLinesRegardlessOfNesting` below for
-    /// why) purely to satisfy that gate — it isn't what this test is about.
     func testTopLevelBulletItemGetsPositiveHeadIndentWithZeroFirstLineIndent() {
         let source = "- Some list item text long enough to plausibly wrap in a window\n"
         let map = MarkdownStyleMap(text: source)
@@ -562,22 +558,41 @@ final class MarkdownStyleMapTests: XCTestCase {
         XCTAssertGreaterThan(indent ?? 0, 0)
     }
 
-    /// Regression: applying a nonzero `NSParagraphStyle.headIndent` to a list
-    /// item's line — even with firstLineHeadIndent correctly left at 0 —
-    /// was found (empirically, in the real app, not explained by anything in
-    /// this file) to visibly shift that line's *first* rendering rightward
-    /// by exactly the headIndent amount, for any paragraph other than the
-    /// very first one in the whole document. Concretely: pasting a plain
-    /// two-item checklist ("- [ ] A\n- [ ] B\n") rendered item A's checkbox
-    /// flush left as expected, but item B's checkbox 59px further right —
-    /// misaligning every list item after the first one in any list, task or
-    /// not. Since hanging indent only ever matters for a line that actually
-    /// wraps, and most list items (checklists especially) don't, short lines
-    /// must not get a headIndent element created for them at all.
-    func testHangingIndentSkippedForShortLinesRegardlessOfNesting() {
-        let source = "- [ ] A\n- [ ] B\n"
-        let map = MarkdownStyleMap(text: source)
-        XCTAssertNil(headIndent(in: map), "a short list item's line should not get a hanging-indent paragraph style at all")
+    /// Regression: a task item's first line rendered indented by its own
+    /// headIndent — for every paragraph except the document's first — even
+    /// with firstLineHeadIndent at 0. The item's hidden "-" was a `.null`
+    /// glyph, and TextKit swept a `.null` glyph at the start of a paragraph
+    /// into the previous paragraph's last line fragment, so the item's first
+    /// fragment began one character in and was laid out as a continuation
+    /// line. Lines long enough to get a hanging indent (every item, now)
+    /// must still start flush left.
+    func testHangingIndentDoesNotShiftFirstLineOfLaterTaskItems() {
+        let source = "- [ ] Pete Sudbury\n- [ ] Kaja Wasik (Echo Labs; no email in Contacts, so LinkedIn only)\n"
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        let delegate = MarkdownLayoutManagerDelegate()
+        layoutManager.delegate = delegate
+        textContainer.proseWidth = 2000
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+        layoutManager.ensureLayout(for: textContainer)
+
+        XCTAssertNotNil(headIndent(in: MarkdownStyleMap(text: source)), "the long item should carry a hanging indent")
+
+        let ns = source as NSString
+        func bracketX(_ item: String) -> CGFloat {
+            let itemStart = ns.range(of: item).location
+            let bracket = ns.range(of: "[ ]", range: NSRange(location: itemStart, length: ns.length - itemStart))
+            let glyph = layoutManager.glyphIndexForCharacter(at: bracket.location)
+            let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            return fragment.minX + layoutManager.location(forGlyphAt: glyph).x
+        }
+        XCTAssertEqual(bracketX("- [ ] Pete"), bracketX("- [ ] Kaja"), accuracy: 0.5,
+            "the second item's checkbox should line up with the first's")
     }
 
     // MARK: - Tables

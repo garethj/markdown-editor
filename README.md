@@ -29,7 +29,7 @@ The raw markdown lives in an `NSTextStorage` subclass. On every edit, the app:
 1. Parses the markdown into an AST using [swift-markdown](https://github.com/apple/swift-markdown) (a full re-parse each time — this is the one part that isn't incremental)
 2. Walks the AST to produce styled ranges and delimiter positions
 3. Applies font/color attributes with trait merging (bold + italic = bold-italic), scoped to the dirty region only
-4. Passes delimiter ranges to an `NSLayoutManagerDelegate` that sets the `.null` glyph property on those characters, making them invisible and zero-width
+4. Passes delimiter ranges to an `NSLayoutManagerDelegate` that marks those characters' glyphs as zero-advancement control characters, making them invisible and zero-width
 
 The cursor reveal works by binary-searching the styled ranges to find which formatted span the cursor is in, then temporarily restoring that span's delimiter glyphs.
 

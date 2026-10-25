@@ -167,14 +167,12 @@ final class MarkdownTheme {
         let blockQuotePara = NSMutableParagraphStyle()
         blockQuotePara.lineSpacing = 3
         blockQuotePara.paragraphSpacing = 4
-        // No headIndent/firstLineHeadIndent here on purpose: this app's text
-        // view has a confirmed quirk (see appendListContinuationIndent's
-        // comment in MarkdownStyleMap.swift) where a nonzero headIndent
-        // visibly misaligns a paragraph's first line vs. its continuation
-        // lines in ways that don't match Apple's documented behavior — it's
-        // what caused first-line/second-line background misalignment when
-        // this was tried. The tinted background just hugs the text instead,
-        // same as the existing inline-code/highlight treatment.
+        // No headIndent/firstLineHeadIndent here: when this was tried, a
+        // nonzero headIndent misaligned the first line's background against
+        // its continuation lines. That was most likely the hidden-glyph
+        // line-fragment bug described in MarkdownLayoutManagerDelegate
+        // (since fixed), so it may be worth revisiting. The tinted background
+        // just hugs the text instead, same as inline code and highlights.
         blockQuoteAttributes = [
             .foregroundColor: defaultColor,
             .backgroundColor: blockQuoteBackgroundColor,

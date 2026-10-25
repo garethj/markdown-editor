@@ -123,7 +123,7 @@ NSTextView edit
         → MarkdownLayoutManagerDelegate.updateDelimiters(from:)  ← updates IndexSet
         → MarkdownTextContainer.tableLineRanges = styleMap.tableRegions
   → NSLayoutManager generates glyphs
-    → MarkdownLayoutManagerDelegate.shouldGenerateGlyphs  ← sets .null for delimiters
+    → MarkdownLayoutManagerDelegate.shouldGenerateGlyphs  ← hides delimiters (zero-advance control chars)
 ```
 
 ### Deferred styling
@@ -143,7 +143,7 @@ Measuring the real cost rather than thresholding on length matters because the s
 
 ### Glyph hiding
 
-`MarkdownLayoutManagerDelegate` holds a `delimiterIndexSet: IndexSet`. During glyph generation it sets the `.null` property on any character whose index is in the set, making it invisible and zero-width. The `activeSpanRange` exempts the span the cursor is currently inside (so delimiters become visible when you move into them).
+`MarkdownLayoutManagerDelegate` holds a `delimiterIndexSet: IndexSet`. During glyph generation it marks any character whose index is in the set as `.controlCharacter`, and `shouldUse(_:forControlCharacterAt:)` gives it `.zeroAdvancement`, making it invisible and zero-width. Don't switch this to the simpler `.null` property: a `.null` glyph at the very start of a paragraph (a task item's hidden `-`, a heading's `#`) gets absorbed into the previous paragraph's last line fragment, so the paragraph's first line is laid out as a continuation line and picks up its `headIndent`. This showed up as task items over a certain length rendering indented. The `activeSpanRange` exempts the span the cursor is currently inside (so delimiters become visible when you move into them).
 
 ### Delimiter visibility: hide vs. colorize
 

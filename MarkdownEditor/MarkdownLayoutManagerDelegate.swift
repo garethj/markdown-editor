@@ -21,10 +21,19 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
 
         var didModify = false
 
+        // Hidden characters are marked .controlCharacter and given zero
+        // advancement (below), not .null. A .null glyph at the very start of
+        // a paragraph — a task item's hidden "-", a heading's "#" — gets
+        // swept into the *previous* paragraph's last line fragment, so this
+        // paragraph's first fragment starts one character in and the
+        // typesetter treats it as a continuation line, indenting it by the
+        // paragraph style's headIndent. The very first paragraph in a
+        // document has no previous fragment to absorb it, which is why only
+        // later ones shifted.
         for i in 0..<glyphRange.length {
             modifiedProps[i] = props[i]
             if shouldHideCharacter(at: charIndexes[i]) {
-                modifiedProps[i] = .null
+                modifiedProps[i] = .controlCharacter
                 didModify = true
             }
         }
@@ -39,6 +48,14 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSLayoutManagerDelegate {
             forGlyphRange: glyphRange
         )
         return glyphRange.length
+    }
+
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldUse action: NSLayoutManager.ControlCharacterAction,
+        forControlCharacterAt charIndex: Int
+    ) -> NSLayoutManager.ControlCharacterAction {
+        shouldHideCharacter(at: charIndex) ? .zeroAdvancement : action
     }
 
     private func shouldHideCharacter(at index: Int) -> Bool {

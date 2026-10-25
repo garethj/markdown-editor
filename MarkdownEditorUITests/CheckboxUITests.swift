@@ -44,8 +44,8 @@ final class CheckboxUITests: XCTestCase {
     /// *first* line of every list item after the first one in the whole
     /// document rightward by its own headIndent value — even with
     /// firstLineHeadIndent correctly left at 0 (see
-    /// MarkdownStyleMapTests.testHangingIndentSkippedForShortLinesRegardlessOfNesting
-    /// for the headless half of this fix). Both "A" and "B" here are
+    /// MarkdownStyleMapTests.testHangingIndentDoesNotShiftFirstLineOfLaterTaskItems
+    /// for the cause and the headless check). Both "A" and "B" here are
     /// top-level, unindented checkbox items, so their checkboxes must land
     /// at the exact same x-offset from the text container's left edge —
     /// clicking item B's checkbox at the identical offset that checks item
