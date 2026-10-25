@@ -606,4 +606,49 @@ final class MarkdownTextStorageTests: XCTestCase {
                     .fontDescriptor.symbolicTraits.contains(.bold)) ?? false)
         }
     }
+
+    /// Regression guard for a performance fix: a width change must mark the
+    /// layout dirty without generating glyphs for the whole document.
+    /// MarkdownTextContainer used to build its invalidation range from
+    /// `layoutManager.numberOfGlyphs`, and reading that forces glyph
+    /// generation for every character — on a long file, on every window
+    /// resize and every keystroke inside a table (a cell edit changes the
+    /// container width). Covers both invalidation paths: a width change that
+    /// resizes the container, and one hidden behind a wider table.
+    func testWidthChangeDoesNotGenerateGlyphsForWholeDocument() {
+        final class GlyphGenerationRecorder: NSObject, NSLayoutManagerDelegate {
+            var generatedCharacterCount = 0
+            func layoutManager(
+                _ layoutManager: NSLayoutManager,
+                shouldGenerateGlyphs glyphs: UnsafePointer<CGGlyph>,
+                properties props: UnsafePointer<NSLayoutManager.GlyphProperty>,
+                characterIndexes charIndexes: UnsafePointer<Int>,
+                font aFont: NSFont,
+                forGlyphRange glyphRange: NSRange
+            ) -> Int {
+                generatedCharacterCount += glyphRange.length
+                return 0
+            }
+        }
+
+        let line = "A line of prose that is long enough to wrap in a narrow window.\n"
+        let storage = NSTextStorage(string: String(repeating: line, count: 5000))
+        let lm = NSLayoutManager()
+        let recorder = GlyphGenerationRecorder()
+        lm.delegate = recorder
+        storage.addLayoutManager(lm)
+        let container = MarkdownTextContainer()
+        lm.addTextContainer(container)
+
+        // Path 1: the container itself changes width.
+        container.proseWidth = 600
+        container.proseWidth = 400
+        // Path 2: a wide table holds the container width still, so only the
+        // prose width changes underneath it.
+        container.tableLineRanges = [(charRange: NSRange(location: 0, length: line.utf16.count), requiredWidth: 3000)]
+        container.proseWidth = 500
+
+        XCTAssertLessThan(recorder.generatedCharacterCount, storage.length / 10,
+            "a width change should only mark layout dirty, not generate glyphs for the whole document")
+    }
 }

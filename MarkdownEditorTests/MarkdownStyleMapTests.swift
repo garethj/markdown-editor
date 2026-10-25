@@ -595,6 +595,55 @@ final class MarkdownStyleMapTests: XCTestCase {
             "the second item's checkbox should line up with the first's")
     }
 
+    /// The general form of the test above: no paragraph's first line may
+    /// begin anywhere but at the paragraph's own first character. Any
+    /// construct whose line starts with a hidden delimiter — a heading's
+    /// "#", a task item's "-", bold or code at the start of a line — is
+    /// exposed to the same failure, where the hidden character gets laid
+    /// out at the end of the previous line instead. The paragraphs are
+    /// mixed so each kind follows a different kind.
+    func testEveryParagraphsFirstLineFragmentStartsAtItsFirstCharacter() {
+        let source = """
+        Opening paragraph of plain prose.
+        # A heading straight after prose
+        - [ ] A task straight after a heading
+        - [x] A checked task with enough text to carry a hanging indent of its own
+          - [ ] A nested task, also long enough to get a hanging indent applied
+        ## Second-level heading after a nested task
+        **Bold** at the start of a line
+        `code` at the start of a line
+        1. An ordered item long enough to get its own hanging indent on this line
+        - A plain bullet long enough to get its own hanging indent on this line too
+        > A blockquote line
+        Closing paragraph.
+        """
+        let textStorage = MarkdownTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = MarkdownTextContainer(
+            containerSize: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        let delegate = MarkdownLayoutManagerDelegate()
+        layoutManager.delegate = delegate
+        textContainer.proseWidth = 2000
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: source)
+        layoutManager.ensureLayout(for: textContainer)
+
+        let ns = source as NSString
+        var paragraphStart = 0
+        while paragraphStart < ns.length {
+            let paragraph = ns.paragraphRange(for: NSRange(location: paragraphStart, length: 0))
+            let glyph = layoutManager.glyphIndexForCharacter(at: paragraph.location)
+            var fragmentGlyphs = NSRange()
+            _ = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &fragmentGlyphs)
+            let fragmentChars = layoutManager.characterRange(forGlyphRange: fragmentGlyphs, actualGlyphRange: nil)
+            XCTAssertEqual(fragmentChars.location, paragraph.location,
+                "line should start its own line fragment: '\(ns.substring(with: paragraph).trimmingCharacters(in: .newlines))'")
+            paragraphStart = NSMaxRange(paragraph)
+        }
+    }
+
     // MARK: - Tables
 
     func testTableColumnPaddingKernsShortCells() {
