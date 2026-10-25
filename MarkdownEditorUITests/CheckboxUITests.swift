@@ -51,10 +51,15 @@ final class CheckboxUITests: XCTestCase {
     /// clicking item B's checkbox at the identical offset that checks item
     /// A's confirms they're still aligned, the same way
     /// testCheckboxClickTogglesTaskState confirms item A's own position.
+    /// Item B is the long one, as in the original report: it's the item
+    /// that carries a real hanging indent for the bug to apply. It's still
+    /// short enough not to wrap in the test window.
     func testConsecutiveTopLevelCheckboxesAlignAtSameXOffset() throws {
         let textView = app.textViews["MarkdownEditorTextView"]
         XCTAssertTrue(textView.waitForExistence(timeout: 10))
-        UITestSupport.pasteText("- [ ] A\n- [ ] B\n", into: textView, app: app)
+        UITestSupport.pasteText(
+            "- [ ] A\n- [ ] B, a longer task item (no email in Contacts, so LinkedIn only)\n",
+            into: textView, app: app)
 
         let firstLineCheckboxPoint = textView.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: 52, dy: 31))

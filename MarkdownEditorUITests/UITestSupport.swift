@@ -34,6 +34,12 @@ enum UITestSupport {
     /// dismiss it and force one via Cmd+N rather than depend on which one
     /// shows up.
     static func launchWithFreshDocument(_ app: XCUIApplication) {
+        // Skip macOS window restoration for this launch. Without it, quitting
+        // the app normally (Cmd+Q with a document open) is enough to make
+        // the next test launch reopen that real document — confirmed
+        // 2026-10-25, when a user's own file reappeared mid-run. The
+        // emptiness check below stays as a second line of defense.
+        app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launch()
         if app.windows["open-panel"].waitForExistence(timeout: 3) {
             // Only force a new document via Cmd+N when launch actually
